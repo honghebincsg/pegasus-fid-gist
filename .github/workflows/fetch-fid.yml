@@ -1,0 +1,48 @@
+name: Fetch FID data to Gist
+
+on:
+  schedule:
+    # UTC 时间，*/30 表示每 30 分钟一次
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: fetch-fid
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch page and publish to Gist
+        env:
+          FID_URL: ${{ vars.FID_URL || 'https://www.pegasusintranet.com/F/C/CSN/fid.php' }}
+          FID_GIST_ID: ${{ secrets.FID_GIST_ID }}
+          FID_GIST_TOKEN: ${{ secrets.FID_GIST_TOKEN }}
+          FID_COOKIE: ${{ secrets.FID_COOKIE }}
+        run: python scripts/fetch_fid.py
+
+      - name: Upload snapshot artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fid-snapshot
+          path: out/
+          retention-days: 3
+          if-no-files-found: ignore
