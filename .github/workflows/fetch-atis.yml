@@ -17,11 +17,12 @@ jobs:
     timeout-minutes: 5
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Fetch ATIS and publish
         env:
           ATIS_CODE: ${{ inputs.airport }}
           GIST_TOKEN: ${{ secrets.FID_GIST_TOKEN }}
           GIST_ID: ${{ secrets.FID_GIST_ID }}
-        run: |
-          curl -fsSL -m 15 "https://raw.githubusercontent.com/honghebincsg/pegasus-fid-gist/main/scripts/fetch_atis.py" -o /tmp/fetch_atis.py
-          python3 /tmp/fetch_atis.py
+        run: python3 scripts/fetch_atis.py
