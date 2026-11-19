@@ -138,10 +138,13 @@ def build_text(data: dict) -> str:
     return "\n\n".join(parts).strip() + "\n"
 
 
-def publish(token: str, gist_id: str, files: dict[str, str], description: str) -> dict:
+def publish(token: str, gist_id: str, files: dict[str, str | None], description: str) -> dict:
     payload = {
         "description": description,
-        "files": {name: {"content": content} for name, content in files.items()},
+        "files": {
+            name: {"content": content} if content is not None else None
+            for name, content in files.items()
+        },
     }
     req = urllib.request.Request(
         f"{API_ROOT}/gists/{gist_id}",
@@ -194,8 +197,8 @@ def main() -> int:
                 arrival_updated=info["arrival"]["updated_at"],
                 departure_updated=info["departure"]["updated_at"],
             )
-            files[f"atis_{code.lower()}.json"] = json.dumps(snapshot, ensure_ascii=False, indent=2)
-            files[f"atis_{code.lower()}.txt"] = build_text(data)
+            snapshot["ok"] = True
+            files[f"{code}.json"] = json.dumps(snapshot, ensure_ascii=False, indent=2)
         else:
             url = f"https://atis.guru/atis/{code}"
             html = fetch(url)
@@ -216,19 +219,32 @@ def main() -> int:
                     arrival_updated=data["arrival"]["updated_at"],
                     departure_updated=data["departure"]["updated_at"],
                 )
-                files[f"atis_{code.lower()}.json"] = json.dumps(snapshot, ensure_ascii=False, indent=2)
-                files[f"atis_{code.lower()}.txt"] = build_text(data)
+                snapshot["ok"] = True
+                files[f"{code}.json"] = json.dumps(snapshot, ensure_ascii=False, indent=2)
             else:
                 status.update(ok=False, source="atis.guru", error="该机场暂无 ATIS 数据")
+                files[f"{code}.json"] = json.dumps(
+                    {
+                        "airport": code,
+                        "ok": False,
+                        "error": "该机场暂无 ATIS 数据",
+                        "checked_at": utc_now(),
+                        "source": "atis.guru",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
                 print(f"::warning::no ATIS data found for {code}")
     except Exception as exc:
         status["error"] = f"{type(exc).__name__}: {exc}"
         exit_code = 1
         print(f"::error::Fetch failed: {status['error']}")
 
-    files[f"atis_{code.lower()}_status.json"] = json.dumps(status, ensure_ascii=False, indent=2)
+    for legacy in (f"atis_{code.lower()}.json", f"atis_{code.lower()}.txt", f"atis_{code.lower()}_status.json"):
+        files[legacy] = None
     for name, content in files.items():
-        (OUT_DIR / name).write_text(content, encoding="utf-8", newline="\n")
+        if content is not None:
+            (OUT_DIR / name).write_text(content, encoding="utf-8", newline="\n")
 
     lines = [
         "## ATIS 抓取结果",
