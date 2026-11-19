@@ -2,8 +2,8 @@ name: Fetch FID data to Gist
 
 on:
   schedule:
-    # UTC 时间，*/30 表示每 30 分钟一次
-    - cron: "*/30 * * * *"
+    # UTC 时间，*/5 是 GitHub 允许的最短间隔
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 concurrency:
