@@ -2,6 +2,8 @@
 
 `https://www.pegasusintranet.com/F/C/CSN/fid.php` 国内直连超时，这里用 GitHub Actions 的海外节点定时抓取，把结果写入一个 Gist，供国内按需读取。
 
+页面本身是空壳，航班数据由脚本动态请求 `POST /F/C/ajaxgetflights.php`（参数 `fid=CSN&cust=CSN`）获得，抓取脚本直接调用这个接口。
+
 ## 文件
 
 - `.github/workflows/fetch-fid.yml`：每 30 分钟定时 + 手动触发
@@ -26,14 +28,16 @@ Gist 包含：
 
 | 文件 | 内容 |
 | --- | --- |
-| `fid_latest.json` | 结构化快照：title、tables（header + rows）、text、抓取时间、最终 URL |
-| `fid_raw.html` | 原始 HTML |
-| `fid_status.json` | 最近一次抓取状态（成功/失败、HTTP 状态、错误信息） |
+| `fid_latest.json` | 航班数据：`flights` 数组、通告、页面时间、抓取时间 |
+| `fid_flights.csv` | 同一份航班数据，CSV 格式，便于表格或程序读取 |
+| `fid_raw.html` | 页面原始 HTML |
+| `fid_status.json` | 最近一次抓取状态（成功/失败、航班数、错误信息） |
 
 国内读取地址（`gist.githubusercontent.com` 国内是否能直连取决于当地网络）：
 
 ```text
 https://gist.githubusercontent.com/<用户名>/<GIST_ID>/raw/fid_latest.json
+https://gist.githubusercontent.com/<用户名>/<GIST_ID>/raw/fid_flights.csv
 https://gist.githubusercontent.com/<用户名>/<GIST_ID>/raw/fid_status.json
 ```
 
