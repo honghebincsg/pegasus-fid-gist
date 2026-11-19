@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""抓取 atis.guru 的机场 ATIS 页面并发布到 GitHub Gist。"""
+"""抓取机场 ATIS：美国机场优先 atis.info，其余使用 atis.guru，并发布到 GitHub Gist。"""
 
 import datetime as dt
 import html as html_lib
@@ -14,6 +14,11 @@ from pathlib import Path
 DEFAULT_CODE = "ZGGG"
 API_ROOT = "https://api.github.com"
 OUT_DIR = Path("out")
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
 
 
 def utc_now() -> str:
@@ -21,14 +26,7 @@ def utc_now() -> str:
 
 
 def fetch(url: str, attempts: int = 3, timeout: int = 30) -> str:
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml",
-    }
+    headers = {"User-Agent": USER_AGENT, "Accept": "text/html,application/json"}
     last_error = None
     for attempt in range(1, attempts + 1):
         try:
@@ -39,8 +37,54 @@ def fetch(url: str, attempts: int = 3, timeout: int = 30) -> str:
             last_error = exc
             print(f"[fetch] attempt {attempt}/{attempts} failed: {exc}", flush=True)
             if attempt < attempts:
-                time.sleep(3 * attempt)
+                time.sleep(2 * attempt)
     raise last_error
+
+
+def extract_atis_time(text: str) -> str:
+    match = re.search(r"\b(\d{4})Z\b", text or "")
+    return match.group(0) if match else ""
+
+
+def fetch_atisinfo(code: str):
+    """美国机场：atis.info/api/<ICAO> 返回 combined 或 arrival/departure。"""
+    url = f"https://atis.info/api/{code}"
+    try:
+        payload = json.loads(fetch(url, attempts=1, timeout=20))
+    except Exception:
+        return None
+    if not isinstance(payload, list) or not payload:
+        return None
+    combined = None
+    arrival = {"updated_at": "", "text": ""}
+    departure = {"updated_at": "", "text": ""}
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        text = item.get("datis") or ""
+        if not text:
+            continue
+        block = {
+            "code": item.get("code", ""),
+            "updated_at": extract_atis_time(text),
+            "text": text,
+        }
+        kind = (item.get("type") or "").lower()
+        if kind == "combined":
+            combined = block
+        elif kind == "arrival":
+            arrival = block
+        elif kind == "departure":
+            departure = block
+    if combined is None and not arrival["text"] and not departure["text"]:
+        return None
+    return {
+        "source": "atis.info",
+        "source_url": url,
+        "combined": combined,
+        "arrival": arrival,
+        "departure": departure,
+    }
 
 
 def page_text(html: str) -> str:
@@ -78,6 +122,22 @@ def extract(text: str, code: str) -> dict:
     }
 
 
+def build_text(data: dict) -> str:
+    parts = []
+    combined = data.get("combined")
+    if combined:
+        parts.append(
+            f"COMBINED ATIS {combined.get('code', '')} {combined.get('updated_at', '')}\n"
+            f"{combined.get('text', '')}"
+        )
+    else:
+        arrival = data.get("arrival") or {}
+        departure = data.get("departure") or {}
+        parts.append(f"ARRIVAL ATIS {arrival.get('updated_at', '')}\n{arrival.get('text', '')}")
+        parts.append(f"DEPARTURE ATIS {departure.get('updated_at', '')}\n{departure.get('text', '')}")
+    return "\n\n".join(parts).strip() + "\n"
+
+
 def publish(token: str, gist_id: str, files: dict[str, str], description: str) -> dict:
     payload = {
         "description": description,
@@ -103,33 +163,60 @@ def main() -> int:
     if not re.fullmatch(r"[A-Z]{4}", code):
         print(f"::error::invalid ICAO code: {code!r}")
         return 2
-    url = f"https://atis.guru/atis/{code}"
     token = os.environ.get("GIST_TOKEN", "").strip()
     gist_id = os.environ.get("GIST_ID", "").strip()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    status = {"ok": False, "checked_at": utc_now(), "airport": code, "source_url": url}
+    status = {"ok": False, "checked_at": utc_now(), "airport": code}
     files: dict[str, str] = {}
     exit_code = 0
+    snapshot = None
 
     try:
-        html = fetch(url)
-        text = page_text(html)
-        data = extract(text, code)
-        if not data["arrival"]["text"] and not data["departure"]["text"]:
-            raise RuntimeError(f"no ATIS data found for {code}")
-        snapshot = {"source_url": url, "airport": code, "fetched_at": utc_now(), **data}
+        info = fetch_atisinfo(code)
+        if info:
+            data = {
+                "combined": info["combined"],
+                "arrival": info["arrival"],
+                "departure": info["departure"],
+            }
+            snapshot = {
+                "source_url": info["source_url"],
+                "airport": code,
+                "source": "atis.info",
+                "fetched_at": utc_now(),
+                **data,
+            }
+            status.update(
+                ok=True,
+                source="atis.info",
+                combined_code=(info["combined"] or {}).get("code", ""),
+                arrival_updated=info["arrival"]["updated_at"],
+                departure_updated=info["departure"]["updated_at"],
+            )
+        else:
+            url = f"https://atis.guru/atis/{code}"
+            html = fetch(url)
+            text = page_text(html)
+            data = extract(text, code)
+            if not data["arrival"]["text"] and not data["departure"]["text"]:
+                raise RuntimeError(f"no ATIS data found for {code}")
+            data["combined"] = None
+            snapshot = {
+                "source_url": url,
+                "airport": code,
+                "source": "atis.guru",
+                "fetched_at": utc_now(),
+                **data,
+            }
+            status.update(
+                ok=True,
+                source="atis.guru",
+                arrival_updated=data["arrival"]["updated_at"],
+                departure_updated=data["departure"]["updated_at"],
+            )
         files[f"atis_{code.lower()}.json"] = json.dumps(snapshot, ensure_ascii=False, indent=2)
-        files[f"atis_{code.lower()}.txt"] = (
-            f"ARRIVAL ATIS {data['arrival']['updated_at']} UTC\n{data['arrival']['text']}\n\n"
-            f"DEPARTURE ATIS {data['departure']['updated_at']} UTC\n{data['departure']['text']}\n"
-        )
-        status.update(
-            ok=True,
-            arrival_updated=data["arrival"]["updated_at"],
-            departure_updated=data["departure"]["updated_at"],
-            arrival_text=data["arrival"]["text"][:200],
-        )
+        files[f"atis_{code.lower()}.txt"] = build_text(data)
     except Exception as exc:
         status["error"] = f"{type(exc).__name__}: {exc}"
         exit_code = 1
@@ -142,19 +229,24 @@ def main() -> int:
     lines = [
         "## ATIS 抓取结果",
         "",
+        f"- 机场：{code}",
         f"- 状态：{'成功' if status['ok'] else '失败'}",
         f"- 时间（UTC）：{status['checked_at']}",
+        f"- 数据源：{status.get('source', '—')}",
     ]
     if status["ok"]:
-        lines.append(f"- 到达 ATIS 更新：{status['arrival_updated'] or '—'}")
-        lines.append(f"- 起飞 ATIS 更新：{status['departure_updated'] or '—'}")
-        lines.append(f"- 到达文本：{status['arrival_text']}")
+        if status.get("combined_code"):
+            lines.append(f"- Combined ATIS 代号：{status['combined_code']}")
+        if status.get("arrival_updated"):
+            lines.append(f"- 到达 ATIS 更新：{status['arrival_updated']}")
+        if status.get("departure_updated"):
+            lines.append(f"- 起飞 ATIS 更新：{status['departure_updated']}")
     else:
         lines.append(f"- 错误：`{status['error']}`")
 
     if token and gist_id:
         try:
-            gist = publish(token, gist_id, files, f"ATIS ZGGG, last success {status['checked_at']}")
+            gist = publish(token, gist_id, files, f"ATIS {code}, last success {status['checked_at']}")
             lines.append(f"- Gist：{gist.get('html_url', '')}")
         except Exception as exc:
             exit_code = 1
