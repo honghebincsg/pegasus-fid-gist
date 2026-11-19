@@ -1,0 +1,49 @@
+name: Test Airframes API
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Query Airframes
+        run: |
+          mkdir -p out
+          for tf in last-hour last-day; do
+            result=$(curl -sS -m 40 -o "out/airframes_$tf.json" -w "%{http_code} %{time_total} %{size_download}" \
+              "https://api.airframes.io/v1/messages?label=A9&text=EHAM&timeframe=$tf" || echo "ERR 0 0")
+            echo "$tf $result" >> out/timings.txt
+          done
+          cat out/timings.txt
+          python - <<'PY'
+          import glob, json
+          for path in sorted(glob.glob("out/airframes_*.json")):
+              print("==", path)
+              try:
+                  data = json.load(open(path, encoding="utf-8"))
+              except Exception as exc:
+                  print("  parse_error:", exc)
+                  continue
+              print("  count:", len(data))
+              atis = [m for m in data if "ATIS" in (m.get("text") or "").upper()]
+              print("  atis_like:", len(atis))
+              for msg in atis[:5]:
+                  print("  ", msg.get("timestamp"), repr((msg.get("text") or "")[:200]))
+              for msg in data[:2]:
+                  print("  sample:", msg.get("timestamp"), repr((msg.get("text") or "")[:160]))
+          PY
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: airframes
+          path: out/
+          retention-days: 1
+          if-no-files-found: ignore
