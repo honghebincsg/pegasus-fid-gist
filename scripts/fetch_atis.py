@@ -75,8 +75,6 @@ def extract(text: str) -> dict:
             "updated_at": grab(r"Departure ATIS ([\d-]+ [\d:]+) UTC"),
             "text": grab(r"ZGGG DEP ATIS (.*?) METAR"),
         },
-        "metar": grab(r"(METAR ZGGG .*?) TAF"),
-        "taf": grab(r"(TAF ZGGG .*)"),
     }
 
 
@@ -114,9 +112,12 @@ def main() -> int:
         html = fetch(url)
         text = page_text(html)
         data = extract(text)
-        snapshot = {"source_url": url, "fetched_at": utc_now(), **data, "text": text}
+        snapshot = {"source_url": url, "fetched_at": utc_now(), **data}
         files["atis_zggg.json"] = json.dumps(snapshot, ensure_ascii=False, indent=2)
-        files["atis_zggg.txt"] = text
+        files["atis_zggg.txt"] = (
+            f"ARRIVAL ATIS {data['arrival']['updated_at']} UTC\n{data['arrival']['text']}\n\n"
+            f"DEPARTURE ATIS {data['departure']['updated_at']} UTC\n{data['departure']['text']}\n"
+        )
         status.update(
             ok=True,
             arrival_updated=data["arrival"]["updated_at"],
