@@ -2,6 +2,11 @@ name: Fetch ATIS ZGGG
 
 on:
   workflow_dispatch:
+    inputs:
+      airport:
+        description: "ICAO airport code (4 letters)"
+        required: true
+        default: "ZGGG"
 
 permissions:
   contents: read
@@ -22,7 +27,7 @@ jobs:
 
       - name: Fetch ATIS
         env:
-          ATIS_URL: https://atis.guru/atis/ZGGG
+          ATIS_CODE: ${{ inputs.airport }}
           GIST_TOKEN: ${{ secrets.FID_GIST_TOKEN }}
           GIST_ID: ${{ secrets.FID_GIST_ID }}
         run: python scripts/fetch_atis.py
