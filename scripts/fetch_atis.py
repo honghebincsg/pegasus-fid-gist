@@ -11,7 +11,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-DEFAULT_URL = "https://atis.guru/atis/ZGGG"
+DEFAULT_CODE = "ZGGG"
 API_ROOT = "https://api.github.com"
 OUT_DIR = Path("out")
 
@@ -59,7 +59,7 @@ def clean(block: str) -> str:
     return re.sub(r"An unhandled error.*$", "", block).strip()
 
 
-def extract(text: str) -> dict:
+def extract(text: str, code: str) -> dict:
     one = re.sub(r"\s+", " ", text)
 
     def grab(pattern: str) -> str:
@@ -69,11 +69,11 @@ def extract(text: str) -> dict:
     return {
         "arrival": {
             "updated_at": grab(r"Arrival ATIS ([\d-]+ [\d:]+) UTC"),
-            "text": grab(r"ZGGG ARR ATIS (.*?) Departure ATIS"),
+            "text": grab(rf"{code} ARR ATIS (.*?) Departure ATIS"),
         },
         "departure": {
             "updated_at": grab(r"Departure ATIS ([\d-]+ [\d:]+) UTC"),
-            "text": grab(r"ZGGG DEP ATIS (.*?) METAR"),
+            "text": grab(rf"{code} DEP ATIS (.*?) METAR"),
         },
     }
 
@@ -99,22 +99,28 @@ def publish(token: str, gist_id: str, files: dict[str, str], description: str) -
 
 
 def main() -> int:
-    url = (os.environ.get("ATIS_URL") or DEFAULT_URL).strip()
+    code = (os.environ.get("ATIS_CODE") or DEFAULT_CODE).strip().upper()
+    if not re.fullmatch(r"[A-Z]{4}", code):
+        print(f"::error::invalid ICAO code: {code!r}")
+        return 2
+    url = f"https://atis.guru/atis/{code}"
     token = os.environ.get("GIST_TOKEN", "").strip()
     gist_id = os.environ.get("GIST_ID", "").strip()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    status = {"ok": False, "checked_at": utc_now(), "source_url": url}
+    status = {"ok": False, "checked_at": utc_now(), "airport": code, "source_url": url}
     files: dict[str, str] = {}
     exit_code = 0
 
     try:
         html = fetch(url)
         text = page_text(html)
-        data = extract(text)
-        snapshot = {"source_url": url, "fetched_at": utc_now(), **data}
-        files["atis_zggg.json"] = json.dumps(snapshot, ensure_ascii=False, indent=2)
-        files["atis_zggg.txt"] = (
+        data = extract(text, code)
+        if not data["arrival"]["text"] and not data["departure"]["text"]:
+            raise RuntimeError(f"no ATIS data found for {code}")
+        snapshot = {"source_url": url, "airport": code, "fetched_at": utc_now(), **data}
+        files[f"atis_{code.lower()}.json"] = json.dumps(snapshot, ensure_ascii=False, indent=2)
+        files[f"atis_{code.lower()}.txt"] = (
             f"ARRIVAL ATIS {data['arrival']['updated_at']} UTC\n{data['arrival']['text']}\n\n"
             f"DEPARTURE ATIS {data['departure']['updated_at']} UTC\n{data['departure']['text']}\n"
         )
@@ -129,7 +135,7 @@ def main() -> int:
         exit_code = 1
         print(f"::error::Fetch failed: {status['error']}")
 
-    files["atis_zggg_status.json"] = json.dumps(status, ensure_ascii=False, indent=2)
+    files[f"atis_{code.lower()}_status.json"] = json.dumps(status, ensure_ascii=False, indent=2)
     for name, content in files.items():
         (OUT_DIR / name).write_text(content, encoding="utf-8", newline="\n")
 
