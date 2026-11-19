@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
-"""抓取 FID 页面快照并发布到 GitHub Gist。"""
+"""抓取 CSN FID 航班数据并发布到 GitHub Gist。"""
 
+import csv
 import datetime as dt
+import io
 import json
 import os
-import re
 import sys
 import time
+import urllib.parse
 from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup
 
 DEFAULT_URL = "https://www.pegasusintranet.com/F/C/CSN/fid.php"
+FID_CODE = "CSN"
 API_ROOT = "https://api.github.com"
 OUT_DIR = Path("out")
 MAX_RAW_BYTES = 8 * 1024 * 1024
@@ -39,18 +42,48 @@ def build_headers() -> dict:
     return headers
 
 
-def fetch_page(url: str, headers: dict, timeout: int, attempts: int = 3) -> requests.Response:
+def fetch_page(session: requests.Session, url: str, headers: dict, timeout: int, attempts: int = 3) -> requests.Response:
     last_error = None
     for attempt in range(1, attempts + 1):
         try:
-            resp = requests.get(url, headers=headers, timeout=timeout)
+            resp = session.get(url, headers=headers, timeout=timeout)
             if resp.status_code >= 500 and attempt < attempts:
                 raise requests.HTTPError(f"HTTP {resp.status_code}", response=resp)
             resp.raise_for_status()
             return resp
         except Exception as exc:
             last_error = exc
-            print(f"[fetch] attempt {attempt}/{attempts} failed: {exc}", flush=True)
+            print(f"[page] attempt {attempt}/{attempts} failed: {exc}", flush=True)
+            if attempt < attempts:
+                time.sleep(5 * attempt)
+    raise last_error
+
+
+def fetch_flights(session: requests.Session, page_url: str, headers: dict, timeout: int, attempts: int = 3):
+    api_url = urllib.parse.urljoin(page_url, "../ajaxgetflights.php")
+    ajax_headers = {**headers, "Referer": page_url, "X-Requested-With": "XMLHttpRequest"}
+    last_error = None
+    for attempt in range(1, attempts + 1):
+        try:
+            resp = session.post(
+                api_url,
+                data={"fid": FID_CODE, "cust": FID_CODE},
+                headers=ajax_headers,
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            text = resp.text.strip()
+            parts = text.split("|", 2)
+            if len(parts) < 2 or parts[0] != "OK":
+                raise RuntimeError(f"接口返回异常：{text[:300]}")
+            flights = [] if parts[1] == "none" else json.loads(parts[1])
+            if not isinstance(flights, list):
+                raise RuntimeError(f"航班数据不是数组：{str(flights)[:200]}")
+            advisory = parts[2] if len(parts) > 2 else ""
+            return api_url, flights, advisory
+        except Exception as exc:
+            last_error = exc
+            print(f"[ajax] attempt {attempt}/{attempts} failed: {exc}", flush=True)
             if attempt < attempts:
                 time.sleep(5 * attempt)
     raise last_error
@@ -79,30 +112,25 @@ def make_soup(html: str) -> BeautifulSoup:
         return BeautifulSoup(html, "html.parser")
 
 
-def extract_tables(soup: BeautifulSoup) -> list[dict]:
-    tables = []
-    for table in soup.find_all("table"):
-        header: list[str] = []
-        rows: list[list[str]] = []
-        for tr in table.find_all("tr"):
-            cells = tr.find_all(["th", "td"])
-            if not cells:
-                continue
-            values = [re.sub(r"\s+", " ", cell.get_text(" ", strip=True)) for cell in cells]
-            if not any(values):
-                continue
-            if not header and not rows and all(cell.name == "th" for cell in cells):
-                header = values
-                continue
-            rows.append(values)
-        if header or rows:
-            tables.append({"header": header, "rows": rows})
-    return tables
+def hidden_value(soup: BeautifulSoup, element_id: str) -> str:
+    node = soup.find("input", id=element_id)
+    return node.get("value", "") if node else ""
 
 
-def page_text(soup: BeautifulSoup) -> str:
-    text = soup.get_text("\n", strip=True)
-    return re.sub(r"\n{2,}", "\n", text)[:20000]
+def flights_to_csv(flights: list[dict]) -> str:
+    if not flights:
+        return ""
+    fields: list[str] = []
+    for row in flights:
+        for key in row:
+            if key not in fields:
+                fields.append(key)
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=fields, extrasaction="ignore", lineterminator="\n")
+    writer.writeheader()
+    for row in flights:
+        writer.writerow({key: "" if row.get(key) is None else row.get(key) for key in fields})
+    return buf.getvalue()
 
 
 def publish_gist(token: str, gist_id: str, files: dict[str, str], description: str) -> tuple[dict, bool]:
@@ -145,10 +173,6 @@ def write_summary(lines: list[str]) -> None:
         print(text)
 
 
-def under(title: str, *extra: str) -> list[str]:
-    return ["", f"### {title}", *extra] if title else list(extra)
-
-
 def main() -> int:
     url = (os.environ.get("FID_URL") or DEFAULT_URL).strip()
     timeout = int(os.environ.get("FID_TIMEOUT") or "30")
@@ -159,33 +183,38 @@ def main() -> int:
     status = {"ok": False, "checked_at": utc_now(), "source_url": url}
     files: dict[str, str] = {}
     exit_code = 0
+    session = requests.Session()
+    headers = build_headers()
 
     try:
-        resp = fetch_page(url, build_headers(), timeout)
-        html, encoding = decode_html(resp)
+        page = fetch_page(session, url, headers, timeout)
+        html, encoding = decode_html(page)
         soup = make_soup(html)
-        tables = extract_tables(soup)
+        api_url, flights, advisory = fetch_flights(session, url, headers, timeout)
         snapshot = {
             "source_url": url,
-            "final_url": resp.url,
+            "api_url": api_url,
             "fetched_at": utc_now(),
-            "http_status": resp.status_code,
+            "page_title": soup.title.get_text(" ", strip=True) if soup.title else "",
+            "as_of_local": hidden_value(soup, "hid_fidtimestamp"),
+            "times": hidden_value(soup, "hid_times"),
+            "http_status": page.status_code,
             "encoding": encoding,
-            "title": soup.title.get_text(" ", strip=True) if soup.title else "",
-            "table_count": len(tables),
-            "tables": tables,
-            "text": page_text(soup),
+            "flight_count": len(flights),
+            "advisory": advisory,
+            "flights": flights,
         }
         if len(html.encode("utf-8")) > MAX_RAW_BYTES:
             html = html[: MAX_RAW_BYTES // 4] + "\n<truncated/>"
         files["fid_latest.json"] = json.dumps(snapshot, ensure_ascii=False, indent=2)
+        files["fid_flights.csv"] = flights_to_csv(flights)
         files["fid_raw.html"] = html
         status.update(
             ok=True,
-            http_status=resp.status_code,
-            final_url=resp.url,
-            title=snapshot["title"],
-            table_count=len(tables),
+            http_status=page.status_code,
+            flight_count=len(flights),
+            as_of_local=snapshot["as_of_local"],
+            advisory=advisory,
         )
     except Exception as exc:
         status["error"] = f"{type(exc).__name__}: {exc}"
@@ -203,8 +232,11 @@ def main() -> int:
         f"- 时间（UTC）：{status['checked_at']}",
     ]
     if status["ok"]:
-        summary.append(f"- HTTP：{status['http_status']}，表格数：{status['table_count']}")
-        summary.append(f"- 最终地址：{status['final_url']}")
+        summary.append(f"- 航班数：{status['flight_count']}")
+        if status.get("as_of_local"):
+            summary.append(f"- 页面时间：{status['as_of_local']}（UTC {status.get('times', '')}）")
+        if status.get("advisory") and status["advisory"] != "None":
+            summary.append(f"- 通告：{status['advisory'][:200]}")
     else:
         summary.append(f"- 错误：`{status['error']}`")
 
@@ -225,7 +257,7 @@ def main() -> int:
                 summary.append(f"- GIST_ID：`{gist['id']}`")
                 if owner:
                     summary.append(f"- Gist 页面：https://gist.github.com/{owner}/{gist['id']}")
-            for name in ("fid_latest.json", "fid_status.json"):
+            for name in ("fid_latest.json", "fid_flights.csv", "fid_status.json"):
                 link = raw_file_url(gist, name)
                 if link:
                     summary.append(f"- raw `{name}`：{link}")
