@@ -194,29 +194,33 @@ def main() -> int:
                 arrival_updated=info["arrival"]["updated_at"],
                 departure_updated=info["departure"]["updated_at"],
             )
+            files[f"atis_{code.lower()}.json"] = json.dumps(snapshot, ensure_ascii=False, indent=2)
+            files[f"atis_{code.lower()}.txt"] = build_text(data)
         else:
             url = f"https://atis.guru/atis/{code}"
             html = fetch(url)
             text = page_text(html)
             data = extract(text, code)
-            if not data["arrival"]["text"] and not data["departure"]["text"]:
-                raise RuntimeError(f"no ATIS data found for {code}")
-            data["combined"] = None
-            snapshot = {
-                "source_url": url,
-                "airport": code,
-                "source": "atis.guru",
-                "fetched_at": utc_now(),
-                **data,
-            }
-            status.update(
-                ok=True,
-                source="atis.guru",
-                arrival_updated=data["arrival"]["updated_at"],
-                departure_updated=data["departure"]["updated_at"],
-            )
-        files[f"atis_{code.lower()}.json"] = json.dumps(snapshot, ensure_ascii=False, indent=2)
-        files[f"atis_{code.lower()}.txt"] = build_text(data)
+            if data["arrival"]["text"] or data["departure"]["text"]:
+                data["combined"] = None
+                snapshot = {
+                    "source_url": url,
+                    "airport": code,
+                    "source": "atis.guru",
+                    "fetched_at": utc_now(),
+                    **data,
+                }
+                status.update(
+                    ok=True,
+                    source="atis.guru",
+                    arrival_updated=data["arrival"]["updated_at"],
+                    departure_updated=data["departure"]["updated_at"],
+                )
+                files[f"atis_{code.lower()}.json"] = json.dumps(snapshot, ensure_ascii=False, indent=2)
+                files[f"atis_{code.lower()}.txt"] = build_text(data)
+            else:
+                status.update(ok=False, source="atis.guru", error="该机场暂无 ATIS 数据")
+                print(f"::warning::no ATIS data found for {code}")
     except Exception as exc:
         status["error"] = f"{type(exc).__name__}: {exc}"
         exit_code = 1
