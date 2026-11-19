@@ -43,7 +43,7 @@ https://gist.githubusercontent.com/<用户名>/<GIST_ID>/raw/fid_status.json
 
 ## 调整
 
-- 频率：修改 workflow 里的 cron（UTC，`*/30` = 每 30 分钟）。private 仓库会消耗 Actions 分钟数，可改为每小时 `0 * * * *`。
+- 频率：workflow 里 cron 现在是 `*/5`（UTC，GitHub 允许的最短间隔，实际可能延迟几分钟）。private 仓库每次运行都消耗 Actions 分钟数，5 分钟一档会超出每月 2000 分钟免费额度；仓库改为 public 可免费不限量，或降低频率/购买分钟数。
 - 目标地址：仓库 Variables 里加 `FID_URL` 可覆盖默认地址。
 - 首次联调：运行后下载 run 的 `fid-snapshot` artifact，检查 `fid_raw.html` 是否抓到真实数据；
   如果抓到的是登录页，就要配置 `FID_COOKIE`。
