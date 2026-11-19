@@ -1,0 +1,29 @@
+name: Debug assets
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch assets
+        run: |
+          mkdir -p out/assets
+          for u in \
+            "https://www.pegasusintranet.com/F/C/CSN/fid_csn.js" \
+            "https://www.pegasusintranet.com/F/C/fidhead.js" \
+            "https://www.pegasusintranet.com/scripts/common.js" \
+            "https://www.pegasusintranet.com/scripts/log.js" \
+            "https://www.pegasusintranet.com/scripts/ReformatDate.js" ; do
+            name=$(basename "$u")
+            code=$(curl -sS -m 30 -w '%{http_code}' -o "out/assets/$name" "$u" || echo ERR)
+            echo "$code $u -> $name"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: assets
+          path: out/
