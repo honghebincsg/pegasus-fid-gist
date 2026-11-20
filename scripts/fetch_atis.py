@@ -139,11 +139,25 @@ def build_text(data: dict) -> str:
 
 
 def publish(token: str, gist_id: str, files: dict[str, str | None], description: str) -> dict:
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
+    }
+    existing: set[str] = set()
+    try:
+        req = urllib.request.Request(f"{API_ROOT}/gists/{gist_id}", headers=headers)
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            existing = set(json.load(resp).get("files", {}).keys())
+    except Exception:
+        pass
     payload = {
         "description": description,
         "files": {
-            name: {"content": content} if content is not None else None
+            name: ({"content": content} if content is not None else None)
             for name, content in files.items()
+            if content is not None or name in existing
         },
     }
     req = urllib.request.Request(
