@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha1"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -106,6 +107,28 @@ func initSchema(db *sql.DB) error {
 			text TEXT
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_atis_airport ON atis_queries(airport, query_at)`,
+		`CREATE TABLE IF NOT EXISTS atis_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			airport TEXT NOT NULL,
+			region TEXT,
+			source TEXT,
+			content_hash TEXT NOT NULL,
+			atis_code TEXT,
+			arrival_updated_at TEXT,
+			departure_updated_at TEXT,
+			combined_updated_at TEXT,
+			landing_runways TEXT NOT NULL DEFAULT '[]',
+			departure_runways TEXT NOT NULL DEFAULT '[]',
+			arrival_text TEXT,
+			departure_text TEXT,
+			combined_text TEXT,
+			source_fetched_at TEXT,
+			first_seen_at TEXT NOT NULL,
+			last_seen_at TEXT NOT NULL,
+			seen_count INTEGER NOT NULL DEFAULT 1,
+			UNIQUE(airport, content_hash)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_atis_history_airport_time ON atis_history(airport, first_seen_at)`,
 	}
 	for _, statement := range statements {
 		if _, err := db.Exec(statement); err != nil {
@@ -115,6 +138,8 @@ func initSchema(db *sql.DB) error {
 	if err := ensureFlightsTable(db); err != nil {
 		return err
 	}
+	// 旧库补列：观测时间与源抓取时间分离
+	db.Exec(`ALTER TABLE atis_history ADD COLUMN source_fetched_at TEXT`)
 	for _, statement := range []string{
 		`CREATE INDEX IF NOT EXISTS idx_fid_flights_gate ON fid_flights(gate)`,
 		`CREATE INDEX IF NOT EXISTS idx_fid_flights_flight ON fid_flights(flight_number)`,
@@ -338,8 +363,99 @@ func saveATIS(data map[string]any) error {
 	return err
 }
 
-func handleStoreFID(w http.ResponseWriter, r *http.Request) {
-	allowCORS(w)
+func atisBlockField(data map[string]any, key, field string) string {
+	block, ok := data[key].(map[string]any)
+	if !ok || block == nil {
+		return ""
+	}
+	return valueString(block[field])
+}
+
+func stringList(value any) []string {
+	switch typed := value.(type) {
+	case []string:
+		return typed
+	case []any:
+		list := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if text := valueString(item); text != "" {
+				list = append(list, text)
+			}
+		}
+		return list
+	}
+	return nil
+}
+
+// saveATISHistoryBatch 按内容去重记录 ATIS 快照，保留 each 配置首次/最近
+// 出现时间与出现次数，供后续分析不同时段跑道使用。
+func saveATISHistoryBatch(items []map[string]any) error {
+	if storeDB == nil || len(items) == 0 {
+		return nil
+	}
+	tx, err := storeDB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, data := range items {
+		airport := strings.ToUpper(valueString(data["airport"]))
+		if airport == "" {
+			continue
+		}
+		arrivalText := atisBlockField(data, "arrival", "text")
+		departureText := atisBlockField(data, "departure", "text")
+		combinedText := atisBlockField(data, "combined", "text")
+		if arrivalText == "" && departureText == "" && combinedText == "" {
+			continue
+		}
+		code := atisBlockField(data, "combined", "code")
+		if code == "" {
+			code = atisBlockField(data, "arrival", "code")
+		}
+		if code == "" {
+			code = atisBlockField(data, "departure", "code")
+		}
+		landing, departure := []string(nil), []string(nil)
+		if runways, ok := data["runways"].(map[string]any); ok {
+			landing = stringList(runways["landing"])
+			departure = stringList(runways["departure"])
+		}
+		landingJSON, _ := json.Marshal(landing)
+		departureJSON, _ := json.Marshal(departure)
+		hash := fmt.Sprintf("%x", sha1.Sum([]byte(airport+"\x1f"+combinedText+"\x1f"+arrivalText+"\x1f"+departureText)))
+		seenAt := utcNow()
+		sourceFetchedAt := valueString(data["fetched_at"])
+		if _, err := tx.Exec(`
+			INSERT INTO atis_history (
+				airport, region, source, content_hash, atis_code,
+				arrival_updated_at, departure_updated_at, combined_updated_at,
+				landing_runways, departure_runways,
+				arrival_text, departure_text, combined_text,
+				source_fetched_at, first_seen_at, last_seen_at, seen_count
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+			ON CONFLICT(airport, content_hash) DO UPDATE SET
+				last_seen_at = excluded.last_seen_at,
+				source_fetched_at = excluded.source_fetched_at,
+				seen_count = atis_history.seen_count + 1,
+				atis_code = excluded.atis_code,
+				landing_runways = excluded.landing_runways,
+				departure_runways = excluded.departure_runways`,
+			airport, valueString(data["region"]), valueString(data["source"]), hash, code,
+			atisBlockField(data, "arrival", "updated_at"),
+			atisBlockField(data, "departure", "updated_at"),
+			atisBlockField(data, "combined", "updated_at"),
+			string(landingJSON), string(departureJSON),
+			arrivalText, departureText, combinedText,
+			sourceFetchedAt, seenAt, seenAt,
+		); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func handleStoreFID(w http.ResponseWriter, r *http.Request) {	allowCORS(w)
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return
