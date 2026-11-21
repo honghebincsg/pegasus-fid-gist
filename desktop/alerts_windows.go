@@ -1,8 +1,11 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -11,6 +14,9 @@ import (
 	"unsafe"
 )
 
+//go:embed winres/icon.ico
+var alertIconICO []byte
+
 // 浅色置顶的原生告警窗口（Win32），多条变更合并展示，同一条变更只弹一次。
 
 var (
@@ -18,66 +24,102 @@ var (
 	gdi32    = syscall.NewLazyDLL("gdi32.dll")
 	kernel32 = syscall.NewLazyDLL("kernel32.dll")
 
-	procRegisterClassExW   = user32.NewProc("RegisterClassExW")
-	procCreateWindowExW    = user32.NewProc("CreateWindowExW")
-	procDefWindowProcW     = user32.NewProc("DefWindowProcW")
-	procDestroyWindow      = user32.NewProc("DestroyWindow")
-	procGetMessageW        = user32.NewProc("GetMessageW")
-	procTranslateMessage   = user32.NewProc("TranslateMessage")
-	procDispatchMessageW   = user32.NewProc("DispatchMessageW")
-	procPostThreadMessageW = user32.NewProc("PostThreadMessageW")
-	procShowWindow         = user32.NewProc("ShowWindow")
-	procSetForegroundWindow = user32.NewProc("SetForegroundWindow")
-	procFindWindowW        = user32.NewProc("FindWindowW")
-	procSetWindowPos       = user32.NewProc("SetWindowPos")
-	procAdjustWindowRectEx = user32.NewProc("AdjustWindowRectEx")
+	procRegisterClassExW      = user32.NewProc("RegisterClassExW")
+	procCreateWindowExW       = user32.NewProc("CreateWindowExW")
+	procDefWindowProcW        = user32.NewProc("DefWindowProcW")
+	procDestroyWindow         = user32.NewProc("DestroyWindow")
+	procGetMessageW           = user32.NewProc("GetMessageW")
+	procTranslateMessage      = user32.NewProc("TranslateMessage")
+	procDispatchMessageW      = user32.NewProc("DispatchMessageW")
+	procPostThreadMessageW    = user32.NewProc("PostThreadMessageW")
+	procShowWindow            = user32.NewProc("ShowWindow")
+	procSetForegroundWindow   = user32.NewProc("SetForegroundWindow")
+	procFindWindowW           = user32.NewProc("FindWindowW")
+	procSetWindowPos          = user32.NewProc("SetWindowPos")
+	procAdjustWindowRectEx    = user32.NewProc("AdjustWindowRectEx")
 	procSystemParametersInfoW = user32.NewProc("SystemParametersInfoW")
-	procMessageBeep         = user32.NewProc("MessageBeep")
-	procSendMessageW        = user32.NewProc("SendMessageW")
-	procGetDlgCtrlID        = user32.NewProc("GetDlgCtrlID")
-	procLoadCursorW         = user32.NewProc("LoadCursorW")
-	procGetCurrentThreadID  = kernel32.NewProc("GetCurrentThreadId")
-	procGetModuleHandleW    = kernel32.NewProc("GetModuleHandleW")
+	procMessageBeep           = user32.NewProc("MessageBeep")
+	procSendMessageW          = user32.NewProc("SendMessageW")
+	procGetDlgCtrlID          = user32.NewProc("GetDlgCtrlID")
+	procLoadCursorW           = user32.NewProc("LoadCursorW")
+	procGetCurrentThreadID    = kernel32.NewProc("GetCurrentThreadId")
+	procGetModuleHandleW      = kernel32.NewProc("GetModuleHandleW")
 
-	procSetBkColor        = gdi32.NewProc("SetBkColor")
-	procSetTextColor      = gdi32.NewProc("SetTextColor")
-	procCreateSolidBrush  = gdi32.NewProc("CreateSolidBrush")
-	procCreateFontW       = gdi32.NewProc("CreateFontW")
+	procSetBkColor               = gdi32.NewProc("SetBkColor")
+	procSetTextColor             = gdi32.NewProc("SetTextColor")
+	procCreateSolidBrush         = gdi32.NewProc("CreateSolidBrush")
+	procCreateFontW              = gdi32.NewProc("CreateFontW")
+	procGetClientRect            = user32.NewProc("GetClientRect")
+	procInvalidateRect           = user32.NewProc("InvalidateRect")
+	procBeginPaint               = user32.NewProc("BeginPaint")
+	procEndPaint                 = user32.NewProc("EndPaint")
+	procFillRect                 = user32.NewProc("FillRect")
+	procGetDC                    = user32.NewProc("GetDC")
+	procReleaseDC                = user32.NewProc("ReleaseDC")
+	procGetWindowLongW           = user32.NewProc("GetWindowLongW")
+	procSetWindowLongW           = user32.NewProc("SetWindowLongW")
+	procLoadImageW               = user32.NewProc("LoadImageW")
+	procEnumWindows              = user32.NewProc("EnumWindows")
+	procIsWindowVisible          = user32.NewProc("IsWindowVisible")
+	procGetWindowThreadProcessId = user32.NewProc("GetWindowThreadProcessId")
+	procGetWindowTextLengthW     = user32.NewProc("GetWindowTextLengthW")
+	procGetCurrentProcessID      = kernel32.NewProc("GetCurrentProcessId")
 )
 
 const (
-	wmCommand        = 0x0111
-	wmClose          = 0x0010
-	wmSetFont        = 0x0030
-	wmCtlColorStatic = 0x0138
+	wmCommand          = 0x0111
+	wmClose            = 0x0010
+	wmPaint            = 0x000F
+	wmSetFont          = 0x0030
+	wmCtlColorStatic   = 0x0138
 	wmAppRefreshAlerts = 0x8001
 
-	wsChild      = 0x40000000
-	wsVisible    = 0x10000000
-	wsPopup      = 0x80000000
-	wsCaption    = 0x00C00000
-	wsSysMenu    = 0x00080000
-	wsTabStop    = 0x00010000
-	exTopmost    = 0x00000008
-	swShow       = 5
-	swRestore    = 9
-	hwndTopmost  = ^uintptr(0) // HWND_TOPMOST = -1
-	swpNoMove    = 0x0002
-	swpNoSize    = 0x0001
-	swpShowWindow = 0x0040
+	wsChild        = 0x40000000
+	wsVisible      = 0x10000000
+	wsPopup        = 0x80000000
+	wsCaption      = 0x00C00000
+	wsSysMenu      = 0x00080000
+	wsTabStop      = 0x00010000
+	exTopmost      = 0x00000008
+	swShow         = 5
+	swRestore      = 9
+	hwndTopmost    = ^uintptr(0) // HWND_TOPMOST = -1
+	swpNoMove      = 0x0002
+	swpNoSize      = 0x0001
+	swpShowWindow  = 0x0040
 	spiGetWorkArea = 0x0030
 
-	ssLeft        = 0x00000000
-	ssRight       = 0x00000002
-	ssNoprefix    = 0x00000080
-	ssEtchedHorz  = 0x00000010
-	bsPushButton  = 0x00000000
+	ssLeft          = 0x00000000
+	ssRight         = 0x00000002
+	ssNoprefix      = 0x00000080
+	ssEtchedHorz    = 0x00000010
+	ssCenterImage   = 0x00000200
+	bsPushButton    = 0x00000000
 	bsDefPushButton = 0x00000001
 
 	idAlertOK      = 1001
 	idAlertHistory = 1002
 
+	wmSetIcon    = 0x0080
+	iconSmall    = 0
+	iconBig      = 1
+	imageIcon    = 1
+	loadFromFile = 0x0010
+	hwndTop      = 0
+
+	idAlertIcon  = 10
+	idAlertTitle = 11
+	idAlertTime  = 12
+	idAlertSep   = 13
+	idAlertNote  = 20
+
 	alertBgColor = 0x00FAF8F7 // #F7F8FA (COLORREF: BBGGRR)
+	alertRed     = 0x004D48E5 // #e5484d
+	alertDark    = 0x0037291F // #1f2937
+	alertGray    = 0x009E948A // #8a949e
+	alertMuted   = 0x00AFA49A // #9aa4af
+	alertOldGate = 0x00ADA298 // #98a2ad
+	alertArrow   = 0x00C6BEB6 // #b6bec6
 )
 
 type wndClassExT struct {
@@ -110,6 +152,15 @@ type winMsgT struct {
 
 type rectT struct{ left, top, right, bottom int32 }
 
+type paintStructT struct {
+	hdc         uintptr
+	fErase      int32
+	rcPaint     rectT
+	fRestore    int32
+	fIncUpdate  int32
+	rgbReserved [32]byte
+}
+
 var (
 	alertMu       sync.Mutex
 	alertQueue    []gateAlert
@@ -118,17 +169,21 @@ var (
 	alertThreadID uint32
 	alertClassOK  bool
 	alertBrush    uintptr
+	alertRedBrush uintptr
 	alertColors   = map[int]uint32{}
+	alertBkColors = map[int]uint32{}
+	alertBrushes  = map[int]uintptr{}
 	alertFonts    = map[int]uintptr{}
 	alertProc     = syscall.NewCallback(gateAlertWndProc)
-	alertClass   = &wndClassExT{}
+	alertClass    = &wndClassExT{}
 
-	alertClassUTF16, _ = syscall.UTF16PtrFromString("AncGateAlertWnd")
-	alertTitleUTF16, _ = syscall.UTF16PtrFromString("停机位变更告警 — ANC 值班")
+	alertClassUTF16, _     = syscall.UTF16PtrFromString("AncGateAlertWnd")
+	alertTitleUTF16, _     = syscall.UTF16PtrFromString("停机位变更告警 — ANC 值班")
 	alertMainTitleUTF16, _ = syscall.UTF16PtrFromString("CSN ANC · 航班与 ATIS")
-	staticClassUTF16, _ = syscall.UTF16PtrFromString("STATIC")
-	buttonClassUTF16, _ = syscall.UTF16PtrFromString("BUTTON")
-	yaheiUTF16, _ = syscall.UTF16PtrFromString("Microsoft YaHei UI")
+	staticClassUTF16, _    = syscall.UTF16PtrFromString("STATIC")
+	buttonClassUTF16, _    = syscall.UTF16PtrFromString("BUTTON")
+	yaheiUTF16, _          = syscall.UTF16PtrFromString("Microsoft YaHei UI")
+	symbolUTF16, _         = syscall.UTF16PtrFromString("Segoe UI Symbol")
 )
 
 func startAlertUI() {
@@ -174,6 +229,8 @@ func registerAlertClass() bool {
 	cursor, _, _ := procLoadCursorW.Call(0, 32512) // IDC_ARROW
 	brush, _, _ := procCreateSolidBrush.Call(uintptr(alertBgColor))
 	alertBrush = brush
+	redBrush, _, _ := procCreateSolidBrush.Call(uintptr(alertRed))
+	alertRedBrush = redBrush
 	alertClass.size = uint32(unsafe.Sizeof(*alertClass))
 	alertClass.wndProc = alertProc
 	alertClass.instance = instance
@@ -183,19 +240,25 @@ func registerAlertClass() bool {
 	ret, _, _ := procRegisterClassExW.Call(uintptr(unsafe.Pointer(alertClass)))
 	alertClassOK = ret != 0
 	if alertClassOK {
-		alertFonts[1] = createUIFont(-21, 600, 0) // 标题
-		alertFonts[2] = createUIFont(-15, 400, 0) // 小字
-		alertFonts[3] = createUIFont(-19, 600, 0) // 航班号
-		alertFonts[4] = createUIFont(-18, 400, 1) // 原机位（删除线）
-		alertFonts[5] = createUIFont(-20, 700, 0) // 新机位
+		alertFonts[1] = createUIFont(-20, 600, 0)                  // 标题 15px
+		alertFonts[2] = createUIFont(-16, 400, 0)                  // 小字 12px
+		alertFonts[3] = createUIFont(-23, 700, 0)                  // 航班号 17px
+		alertFonts[4] = createUIFont(-19, 400, 1)                  // 原机位 14px 删除线
+		alertFonts[5] = createUIFont(-25, 700, 0)                  // 新机位 19px
+		alertFonts[6] = createUIFont(-17, 400, 0)                  // 按钮 13px
+		alertFonts[7] = createUIFontFace(-23, 400, 0, symbolUTF16) // 警告图标
 	}
 	return alertClassOK
 }
 
 func createUIFont(height int32, weight int32, strikeout uint8) uintptr {
+	return createUIFontFace(height, weight, strikeout, yaheiUTF16)
+}
+
+func createUIFontFace(height int32, weight int32, strikeout uint8, face *uint16) uintptr {
 	font, _, _ := procCreateFontW.Call(
 		uintptr(height), 0, 0, 0, uintptr(weight), 0, 0, uintptr(strikeout),
-		1, 0, 0, 5, 0, uintptr(unsafe.Pointer(yaheiUTF16)))
+		1, 0, 0, 5, 0, uintptr(unsafe.Pointer(face)))
 	return font
 }
 
@@ -204,13 +267,32 @@ func wparamLo(value uintptr) int { return int(value & 0xffff) }
 func gateAlertWndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 	switch msg {
 	case wmCtlColorStatic:
-		procSetBkColor.Call(wparam, uintptr(alertBgColor))
-		if id, _, _ := procGetDlgCtrlID.Call(lparam); id != 0 {
+		id, _, _ := procGetDlgCtrlID.Call(lparam)
+		bk := uint32(alertBgColor)
+		if color, ok := alertBkColors[int(id)]; ok {
+			bk = color
+		}
+		procSetBkColor.Call(wparam, uintptr(bk))
+		if id != 0 {
 			if color, ok := alertColors[int(id)]; ok {
 				procSetTextColor.Call(wparam, uintptr(color))
 			}
 		}
+		if brush, ok := alertBrushes[int(id)]; ok && brush != 0 {
+			return brush
+		}
 		return alertBrush
+	case wmPaint:
+		var ps paintStructT
+		hdc, _, _ := procBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
+		if hdc != 0 {
+			var client rectT
+			procGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&client)))
+			strip := rectT{0, 0, client.right, 4}
+			procFillRect.Call(hdc, uintptr(unsafe.Pointer(&strip)), alertRedBrush)
+			procEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
+		}
+		return 0
 	case wmCommand:
 		switch wparamLo(wparam) {
 		case idAlertOK:
@@ -274,10 +356,57 @@ func openHistoryFromAlert() {
 	}
 	alertMu.Unlock()
 	setPendingGateHistory(flight)
-	if hwnd, _, _ := procFindWindowW.Call(0, uintptr(unsafe.Pointer(alertMainTitleUTF16))); hwnd != 0 {
+	if hwnd := findMainWindow(); hwnd != 0 {
 		procShowWindow.Call(hwnd, swRestore)
+		procSetWindowPos.Call(hwnd, hwndTop, 0, 0, 0, 0, swpNoMove|swpNoSize|swpShowWindow)
 		procSetForegroundWindow.Call(hwnd)
 	}
+}
+
+var (
+	enumMainHwnd uintptr
+	enumProc     = syscall.NewCallback(func(hwnd, lparam uintptr) uintptr {
+		if visible, _, _ := procIsWindowVisible.Call(hwnd); visible == 0 {
+			return 1
+		}
+		var pid uint32
+		procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
+		if pid != uint32(os.Getpid()) || hwnd == alertHWND {
+			return 1
+		}
+		if length, _, _ := procGetWindowTextLengthW.Call(hwnd); length == 0 {
+			return 1
+		}
+		enumMainHwnd = hwnd
+		return 0
+	})
+)
+
+// findMainWindow 按进程枚举可见顶层窗口，不依赖标题（标题会被网页 title 覆盖）。
+func findMainWindow() uintptr {
+	enumMainHwnd = 0
+	procEnumWindows.Call(enumProc, 0)
+	return enumMainHwnd
+}
+
+var alertHIcon uintptr
+
+func loadAlertIcon() uintptr {
+	if alertHIcon != 0 {
+		return alertHIcon
+	}
+	path := filepath.Join(os.TempDir(), "anc-fid-alert.ico")
+	if err := os.WriteFile(path, alertIconICO, 0o644); err != nil {
+		log.Printf("write alert icon: %v", err)
+		return 0
+	}
+	iconPath, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return 0
+	}
+	icon, _, _ := procLoadImageW.Call(0, uintptr(unsafe.Pointer(iconPath)), imageIcon, 0, 0, loadFromFile)
+	alertHIcon = icon
+	return icon
 }
 
 func destroyAlertWindow() {
@@ -295,21 +424,19 @@ func buildAlertRow(alerts []gateAlert, index int, top int32, parent uintptr, ins
 	alert := alerts[index]
 	base := 100 + index*10
 	addControl(parent, instance, "STATIC", alert.Flight,
-		wsChild|wsVisible|ssLeft|ssNoprefix, 24, top+8, 120, 26, base, alertFonts[3], 0x00271811)
+		wsChild|wsVisible|ssLeft|ssNoprefix, 24, top+14, 100, 26, base, alertFonts[3], alertDark)
 	sub := alert.Registration
 	if alert.ACType != "" {
 		sub += " · " + alert.ACType
 	}
 	addControl(parent, instance, "STATIC", sub,
-		wsChild|wsVisible|ssLeft|ssNoprefix, 150, top+12, 190, 22, base+1, alertFonts[2], 0x00806B6B)
+		wsChild|wsVisible|ssLeft|ssNoprefix, 128, top+18, 150, 22, base+1, alertFonts[2], alertGray)
 	addControl(parent, instance, "STATIC", alert.OldGate,
-		wsChild|wsVisible|ssRight|ssNoprefix, 352, top+10, 70, 24, base+2, alertFonts[4], 0x009CA3AF)
+		wsChild|wsVisible|ssRight|ssNoprefix, 336, top+18, 68, 22, base+2, alertFonts[4], alertOldGate)
 	addControl(parent, instance, "STATIC", "→",
-		wsChild|wsVisible|ssLeft|ssNoprefix, 430, top+10, 24, 24, base+3, alertFonts[2], 0x00806B6B)
+		wsChild|wsVisible|ssLeft|ssNoprefix, 410, top+18, 20, 22, base+3, alertFonts[2], alertArrow)
 	addControl(parent, instance, "STATIC", alert.NewGate,
-		wsChild|wsVisible|ssLeft|ssNoprefix, 458, top+8, 70, 26, base+4, alertFonts[5], 0x002626DC)
-	addControl(parent, instance, "STATIC", "",
-		wsChild|wsVisible|ssEtchedHorz, 20, top+52, 518, 2, base+5, 0, 0)
+		wsChild|wsVisible|ssLeft|ssNoprefix, 436, top+14, 100, 26, base+4, alertFonts[5], alertRed)
 }
 
 func addControl(parent, instance uintptr, class string, text string,
@@ -354,7 +481,7 @@ func rebuildAlertWindow() {
 		alerts = alerts[:maxRows]
 	}
 	rowH := int32(58)
-	footer := int32(74)
+	footer := int32(64)
 	height := int32(64) + int32(len(alerts))*rowH + footer
 	if extra > 0 {
 		height += 24
@@ -383,38 +510,52 @@ func rebuildAlertWindow() {
 		return
 	}
 	log.Printf("gate alert window %d with %d alerts", hwnd, len(alerts))
+	if icon := loadAlertIcon(); icon != 0 {
+		procSendMessageW.Call(hwnd, wmSetIcon, iconSmall, icon)
+		procSendMessageW.Call(hwnd, wmSetIcon, iconBig, icon)
+	}
 	alertMu.Lock()
 	alertHWND = hwnd
 	alertMu.Unlock()
 
 	alertColors = map[int]uint32{}
-	addControl(hwnd, instance, "STATIC", fmt.Sprintf("停机位变更 · %d 条", len(alerts)+extra),
-		wsChild|wsVisible|ssLeft|ssNoprefix, 24, 16, 320, 30, 1, alertFonts[1], 0x00271811)
+	alertBkColors = map[int]uint32{}
+	alertBrushes = map[int]uintptr{}
+
+	// 图标
+	addControl(hwnd, instance, "STATIC", "⚠",
+		wsChild|wsVisible|ssLeft|ssNoprefix, 22, 14, 28, 28, idAlertIcon, alertFonts[7], alertRed)
+	title := "停机位变更告警"
+	if len(alerts)+extra > 1 {
+		title = fmt.Sprintf("停机位变更告警 · %d 条", len(alerts)+extra)
+	}
+	addControl(hwnd, instance, "STATIC", title,
+		wsChild|wsVisible|ssLeft|ssNoprefix, 54, 16, 320, 26, idAlertTitle, alertFonts[1], alertDark)
 	stamp := alerts[0].ObservedAt
 	if parsed, err := time.Parse("2006-01-02 15:04:05Z", stamp); err == nil {
-		stamp = parsed.Local().Format("2006-01-02 15:04:05")
+		stamp = parsed.Local().Format("01-02 15:04:05")
 	}
 	addControl(hwnd, instance, "STATIC", stamp,
-		wsChild|wsVisible|ssRight|ssNoprefix, 360, 22, 176, 22, 2, alertFonts[2], 0x00806B6B)
+		wsChild|wsVisible|ssRight|ssNoprefix, 340, 18, 196, 22, idAlertTime, alertFonts[2], alertMuted)
 	addControl(hwnd, instance, "STATIC", "",
-		wsChild|wsVisible|ssEtchedHorz, 20, 50, 518, 2, 3, 0, 0)
+		wsChild|wsVisible|ssEtchedHorz, 20, 52, 520, 2, idAlertSep, 0, 0)
 
-	top := int32(60)
+	top := int32(64)
 	for index := range alerts {
 		buildAlertRow(alerts, index, top, hwnd, instance)
 		top += rowH
 	}
 	if extra > 0 {
 		addControl(hwnd, instance, "STATIC", fmt.Sprintf("另有 %d 条变更未展开，点“查看历史”查看全部", extra),
-			wsChild|wsVisible|ssLeft|ssNoprefix, 24, top, 500, 22, 20, alertFonts[2], 0x00806B6B)
+			wsChild|wsVisible|ssLeft|ssNoprefix, 24, top+2, 500, 20, idAlertNote, alertFonts[2], alertMuted)
 		top += 24
 	}
 
-	buttonY := top + 12
+	buttonY := top + 14
 	addControl(hwnd, instance, "BUTTON", "查看历史",
-		wsChild|wsVisible|wsTabStop|bsPushButton, 300, buttonY, 110, 32, idAlertHistory, alertFonts[2], 0)
+		wsChild|wsVisible|wsTabStop|bsPushButton, 310, buttonY, 108, 34, idAlertHistory, alertFonts[6], 0)
 	addControl(hwnd, instance, "BUTTON", "知道了",
-		wsChild|wsVisible|wsTabStop|bsDefPushButton, 422, buttonY, 110, 32, idAlertOK, alertFonts[2], 0)
+		wsChild|wsVisible|wsTabStop|bsDefPushButton, 428, buttonY, 108, 34, idAlertOK, alertFonts[6], 0)
 
 	procShowWindow.Call(hwnd, swShow)
 	procSetWindowPos.Call(hwnd, hwndTopmost, 0, 0, 0, 0, swpNoMove|swpNoSize|swpShowWindow)
