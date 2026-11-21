@@ -92,6 +92,12 @@
     color: #6ee7b7; background: rgba(110,231,183,.14); border: 1px solid rgba(110,231,183,.25);
   }
   .atis-chip.source { color: #7dd3fc; background: rgba(125,211,252,.12); border-color: rgba(125,211,252,.25); }
+  .age-badge {
+    padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap;
+  }
+  .age-badge.fresh { color: #86efac; background: rgba(34,197,94,.18); border: 1px solid rgba(34,197,94,.35); }
+  .age-badge.warm { color: #fde68a; background: rgba(251,191,36,.16); border: 1px solid rgba(251,191,36,.35); }
+  .age-badge.stale { color: #fca5a5; background: rgba(239,68,68,.18); border: 1px solid rgba(239,68,68,.35); }
   .atis-card {
     position: relative; width: 100%; min-width: 0; padding: 14px 16px;
     border: 1px solid var(--line); border-left: 3px solid #6ee7b7; border-radius: 10px;
@@ -363,6 +369,7 @@
           </div>
           <span class="spacer"></span>
           <div class="badges">
+            <span class="age-badge" v-if="latestATISTime" :class="ageClass(latestATISTime)">{{ relativeTime(latestATISTime) }}</span>
             <span class="atis-chip" v-if="atisInfoCode">INFO {{ atisInfoCode }}</span>
             <span class="atis-chip source">{{ atisData.source || 'atis.guru' }}</span>
           </div>
@@ -381,6 +388,7 @@
           <div class="atis-card-head">
             <h3>Combined ATIS</h3>
             <span class="time" v-if="atisData.combined.updated_at">{{ atisData.combined.updated_at }}</span>
+            <span class="age-badge" v-if="atisData.combined.updated_at" :class="ageClass(atisData.combined.updated_at)">{{ relativeTime(atisData.combined.updated_at) }}</span>
             <button class="copy-btn" @click="copyATIS(combinedText)">复制</button>
           </div>
           <p v-html="highlightRunways(combinedText) || '—'"></p>
@@ -390,6 +398,7 @@
             <div class="atis-card-head">
               <h3>Arrival ATIS</h3>
               <span class="time" v-if="atisData.arrival.updated_at">{{ atisData.arrival.updated_at }} UTC</span>
+              <span class="age-badge" v-if="atisData.arrival.updated_at" :class="ageClass(atisData.arrival.updated_at)">{{ relativeTime(atisData.arrival.updated_at) }}</span>
               <button class="copy-btn" @click="copyATIS(atisData.arrival.text)">复制</button>
             </div>
             <p v-html="highlightRunways(atisData.arrival.text) || '暂无到达 ATIS'"></p>
@@ -398,6 +407,7 @@
             <div class="atis-card-head">
               <h3>Departure ATIS</h3>
               <span class="time" v-if="atisData.departure.updated_at">{{ atisData.departure.updated_at }} UTC</span>
+              <span class="age-badge" v-if="atisData.departure.updated_at" :class="ageClass(atisData.departure.updated_at)">{{ relativeTime(atisData.departure.updated_at) }}</span>
               <button class="copy-btn" @click="copyATIS(atisData.departure.text)">复制</button>
             </div>
             <p v-html="highlightRunways(atisData.departure.text) || '暂无起飞 ATIS'"></p>
@@ -518,6 +528,7 @@ Vue.createApp({
     const countdown = Vue.ref(60);
     const clock = Vue.ref('');
     const tzName = Vue.ref('');
+    const nowTs = Vue.ref(Date.now());
 
     const flights = Vue.computed(() => {
       const rows = Array.isArray(snap.value.flights) ? [...snap.value.flights] : [];
@@ -598,6 +609,78 @@ Vue.createApp({
     const atisInfoCode = Vue.computed(() => {
       const d = atisData.value;
       return (d && d.combined && d.combined.code) || '';
+    });
+
+    function parseATISTime(value) {
+      if (!value) return null;
+      const raw = String(value).trim();
+      let match = /^(\d{2})(\d{2})Z$/.exec(raw);
+      if (match) {
+        const now = new Date(nowTs.value);
+        let date = new Date(Date.UTC(
+          now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
+          Number(match[1]), Number(match[2]), 0, 0
+        ));
+        if (date.getTime() > now.getTime() + 30 * 60 * 1000) {
+          date = new Date(date.getTime() - 24 * 60 * 60 * 1000);
+        }
+        return date;
+      }
+      match = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/.exec(raw);
+      if (match) {
+        return new Date(Date.UTC(
+          Number(match[1]), Number(match[2]) - 1, Number(match[3]),
+          Number(match[4]), Number(match[5]), match[6] ? Number(match[6]) : 0
+        ));
+      }
+      return null;
+    }
+
+    function ageMinutes(value) {
+      const date = parseATISTime(value);
+      if (!date) return null;
+      const minutes = Math.floor((nowTs.value - date.getTime()) / 60000);
+      return minutes < 0 ? 0 : minutes;
+    }
+
+    function relativeTime(value) {
+      const minutes = ageMinutes(value);
+      if (minutes === null) return '';
+      if (minutes < 1) return '刚刚';
+      if (minutes < 60) return `${minutes} 分钟前`;
+      const hours = Math.floor(minutes / 60);
+      const rest = minutes % 60;
+      if (hours < 24) {
+        return rest ? `${hours} 小时 ${rest} 分前` : `${hours} 小时前`;
+      }
+      return `${Math.floor(hours / 24)} 天前`;
+    }
+
+    function ageClass(value) {
+      const minutes = ageMinutes(value);
+      if (minutes === null) return '';
+      if (minutes < 15) return 'fresh';
+      if (minutes < 60) return 'warm';
+      return 'stale';
+    }
+
+    const latestATISTime = Vue.computed(() => {
+      const d = atisData.value;
+      if (!d) return '';
+      const candidates = [];
+      if (d.combined && d.combined.updated_at) candidates.push(d.combined.updated_at);
+      if (d.arrival && d.arrival.updated_at) candidates.push(d.arrival.updated_at);
+      if (d.departure && d.departure.updated_at) candidates.push(d.departure.updated_at);
+      let best = '';
+      let bestTime = -Infinity;
+      for (const raw of candidates) {
+        const parsed = parseATISTime(raw);
+        if (parsed && parsed.getTime() > bestTime) {
+          bestTime = parsed.getTime();
+          best = raw;
+        }
+      }
+      return best;
     });
 
     const normalizeRunway = raw => String(raw || '').toUpperCase().replace(/\s+/g, '');
@@ -741,6 +824,7 @@ Vue.createApp({
     Vue.onMounted(() => {
       const tick = () => {
         const now = new Date();
+        nowTs.value = now.getTime();
         clock.value = now.toLocaleTimeString('zh-CN', { hour12: false });
         tzName.value = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
       };
@@ -762,7 +846,7 @@ Vue.createApp({
              countdown, clock, tzName, lastError, lastLoad, text, yes, statusOf, timeTag, rowClass, remarkTitle,
              openDetail, closeDetail, detail, page, atisCode, atisLoading, atisError, atisData, combinedText, fetchModeLabel,
              airportName, airportEnglish, atisInfoCode, landingRunways, departureRunways,
-             highlightRunways, copyATIS, queryAtis, toast };
+             latestATISTime, relativeTime, ageClass, highlightRunways, copyATIS, queryAtis, toast };
   }
 }).mount('#app');
 </script>
