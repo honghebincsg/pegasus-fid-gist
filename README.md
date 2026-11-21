@@ -44,6 +44,29 @@ dev.bat
 - 开发服务器只监听本机 5173（仅开发时），生产程序不监听本地端口
 - 开发构建产物在 `desktop/.dev/`，不纳入仓库
 
+## SQLite 数据持久化
+
+程序首次运行会在 **exe 同目录**创建 `anc-fid.db`，作为独立数据文件，不打包进 exe：
+
+| 表 | 内容 |
+| --- | --- |
+| `fid_snapshots` | 每次 Gist 快照（fetched_at、航班数） |
+| `fid_flights` | 快照中的航班/机位明细（航班号、机号、机位、起降、STA/ETA/ATA 等） |
+| `atis_queries` | 每次 ATIS 查询记录（机场、来源、获取方式、ATIS 代号、文本） |
+
+- 可用 DB Browser for SQLite 或 `sqlite3 anc-fid.db` 查看
+- 若程序目录不可写，会自动回退到 `%LOCALAPPDATA%\anc-fid\anc-fid.db`
+- 开发模式（`dev.bat`）下数据库位于 `desktop/.dev/`
+- 可通过环境变量 `ANC_FID_DB` 指定其他路径
+
+示例：
+
+```sql
+SELECT fetched_at, flight_count FROM fid_snapshots ORDER BY id DESC LIMIT 10;
+SELECT flight_number, gate, from_station, to_station, sta, eta FROM fid_flights ORDER BY id DESC LIMIT 20;
+SELECT airport, updated_at, query_at FROM atis_queries ORDER BY id DESC LIMIT 20;
+```
+
 ## Token 配置
 
 程序触发 GitHub Actions 时需要 token，读取顺序：

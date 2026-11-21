@@ -82,6 +82,9 @@ func handleATIS(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
+	if err := saveATIS(data); err != nil {
+		log.Printf("save ATIS: %v", err)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": data})
 }
 

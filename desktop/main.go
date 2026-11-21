@@ -21,8 +21,9 @@ func main() {
 		log.Fatal(err)
 	}
 	mygo.SetFrontend(web)
-	if err := mygo.Protocol.HandleFunc("ancapi", handleATIS); err != nil {
-		log.Printf("register ATIS protocol: %v", err)
+	openStore()
+	if err := mygo.Protocol.Handle("ancapi", newAncAPIHandler()); err != nil {
+		log.Printf("register ancapi protocol: %v", err)
 	}
 	windowURL := "/"
 	if devURL := os.Getenv("MYGO_DEV_URL"); devURL != "" {

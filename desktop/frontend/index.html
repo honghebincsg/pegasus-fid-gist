@@ -797,6 +797,7 @@ Vue.createApp({
 
     let refreshTimer = null;
     let tickTimer = null;
+    let lastStoredFetched = '';
 
     async function load() {
       const bust = '?t=' + Date.now();
@@ -808,6 +809,14 @@ Vue.createApp({
         ]);
         if (!dataResp.ok) throw new Error('HTTP ' + dataResp.status);
         snap.value = await dataResp.json();
+        if (snap.value.fetched_at && snap.value.fetched_at !== lastStoredFetched) {
+          lastStoredFetched = snap.value.fetched_at;
+          fetch('http://ancapi.localhost/store/fid', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(snap.value),
+          }).catch(() => {});
+        }
         statusInfo.value = statusResp && statusResp.ok ? await statusResp.json() : null;
         if (selected.value) {
           const fresh = (snap.value.flights || []).find(x => x.recno === selected.value.recno);
