@@ -51,9 +51,12 @@ dev.bat
 | 表 | 内容 |
 | --- | --- |
 | `fid_snapshots` | 每次 Gist 快照（fetched_at、航班数） |
-| `fid_flights` | 快照中的航班/机位明细（航班号、机号、机位、起降、STA/ETA/ATA 等） |
+| `fid_flights` | 航班/机位**最新状态，同一航班唯一**（覆盖率见下） |
 | `atis_queries` | 每次 ATIS 查询记录（机场、来源、获取方式、ATIS 代号、文本） |
 
+- 同一航班按 Pegasus 记录号 `recno` 唯一；没有记录号时按 `航班号 + 日期 + 航线`
+- 新快照会覆盖机位、时刻、备注等字段，`first_seen_at` 保留首次出现时间，`last_seen_at` 更新为最近出现时间
+- `fid_snapshots` 保留每个快照的元数据（抓取时间、航班数）
 - 可用 DB Browser for SQLite 或 `sqlite3 anc-fid.db` 查看
 - 若程序目录不可写，会自动回退到 `%LOCALAPPDATA%\anc-fid\anc-fid.db`
 - 开发模式（`dev.bat`）下数据库位于 `desktop/.dev/`

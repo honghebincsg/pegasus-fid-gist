@@ -15,6 +15,28 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+const flightsTableSchema = `(
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	flight_key TEXT NOT NULL UNIQUE,
+	snapshot_id INTEGER,
+	flight_number TEXT,
+	lsodate TEXT,
+	recno TEXT,
+	registration TEXT,
+	ac_type TEXT,
+	gate TEXT,
+	from_station TEXT,
+	to_station TEXT,
+	sta TEXT, eta TEXT, ata TEXT,
+	std TEXT, etd TEXT, atd TEXT,
+	remarks TEXT,
+	aog INTEGER,
+	long_turn INTEGER,
+	international INTEGER,
+	first_seen_at TEXT NOT NULL,
+	last_seen_at TEXT NOT NULL
+)`
+
 var storeDB *sql.DB
 
 func storePath() string {
@@ -72,27 +94,6 @@ func initSchema(db *sql.DB) error {
 			flight_count INTEGER NOT NULL,
 			created_at TEXT NOT NULL
 		)`,
-		`CREATE TABLE IF NOT EXISTS fid_flights (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			snapshot_id INTEGER NOT NULL,
-			recno TEXT,
-			flight_number TEXT,
-			registration TEXT,
-			ac_type TEXT,
-			gate TEXT,
-			from_station TEXT,
-			to_station TEXT,
-			sta TEXT, eta TEXT, ata TEXT,
-			std TEXT, etd TEXT, atd TEXT,
-			lsodate TEXT,
-			remarks TEXT,
-			aog INTEGER,
-			long_turn INTEGER,
-			international INTEGER,
-			UNIQUE(snapshot_id, recno)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_fid_flights_gate ON fid_flights(gate)`,
-		`CREATE INDEX IF NOT EXISTS idx_fid_flights_flight ON fid_flights(flight_number)`,
 		`CREATE TABLE IF NOT EXISTS atis_queries (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			airport TEXT NOT NULL,
@@ -111,7 +112,75 @@ func initSchema(db *sql.DB) error {
 			return err
 		}
 	}
+	if err := ensureFlightsTable(db); err != nil {
+		return err
+	}
+	for _, statement := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_fid_flights_gate ON fid_flights(gate)`,
+		`CREATE INDEX IF NOT EXISTS idx_fid_flights_flight ON fid_flights(flight_number)`,
+		`PRAGMA user_version = 1`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// ensureFlightsTable 创建新表，或把旧的按快照追加结构迁移为
+// 按航班唯一（recno 优先）的结构，每个航班只保留最新一行。
+func ensureFlightsTable(db *sql.DB) error {
+	var exists int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='fid_flights'`).Scan(&exists); err != nil {
+		return err
+	}
+	if exists == 0 {
+		_, err := db.Exec(`CREATE TABLE fid_flights ` + flightsTableSchema)
+		return err
+	}
+	if _, err := db.Exec(`SELECT flight_key FROM fid_flights LIMIT 1`); err == nil {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`CREATE TABLE fid_flights_new ` + flightsTableSchema); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO fid_flights_new (
+			flight_key, snapshot_id, flight_number, lsodate, recno, registration, ac_type, gate,
+			from_station, to_station, sta, eta, ata, std, etd, atd, remarks, aog, long_turn, international,
+			first_seen_at, last_seen_at
+		)
+		SELECT
+			CASE WHEN COALESCE(f.recno, '') <> '' THEN 'recno:' || f.recno
+			     ELSE COALESCE(f.flight_number, '') || '|' || COALESCE(f.lsodate, '') || '|' ||
+			          COALESCE(f.from_station, '') || '|' || COALESCE(f.to_station, '') END,
+			f.snapshot_id, f.flight_number, f.lsodate, f.recno, f.registration, f.ac_type, f.gate,
+			f.from_station, f.to_station, f.sta, f.eta, f.ata, f.std, f.etd, f.atd, f.remarks,
+			f.aog, f.long_turn, f.international,
+			COALESCE(s.created_at, datetime('now')), COALESCE(s.created_at, datetime('now'))
+		FROM fid_flights f
+		LEFT JOIN fid_snapshots s ON s.id = f.snapshot_id
+		WHERE f.id IN (
+			SELECT MAX(id) FROM fid_flights GROUP BY
+				CASE WHEN COALESCE(recno, '') <> '' THEN 'recno:' || recno
+				     ELSE COALESCE(flight_number, '') || '|' || COALESCE(lsodate, '') || '|' ||
+				          COALESCE(from_station, '') || '|' || COALESCE(to_station, '') END
+		)`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DROP TABLE fid_flights`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`ALTER TABLE fid_flights_new RENAME TO fid_flights`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func valueString(value any) string {
@@ -146,6 +215,22 @@ func flagInt(value any) int {
 	return 0
 }
 
+func flightKey(flight map[string]any, index int) (string, string) {
+	recno := valueString(flight["recno"])
+	flightNumber := valueString(flight["FlightNumber"])
+	lsodate := valueString(flight["LSODate"])
+	from := valueString(flight["FromStation"])
+	to := valueString(flight["ToStation"])
+	if recno != "" {
+		return "recno:" + recno, recno
+	}
+	key := flightNumber + "|" + lsodate + "|" + from + "|" + to
+	if key == "|||" {
+		key = fmt.Sprintf("row:%d", index)
+	}
+	return key, recno
+}
+
 func saveFIDSnapshot(data map[string]any) error {
 	if storeDB == nil {
 		return fmt.Errorf("sqlite store not ready")
@@ -176,24 +261,37 @@ func saveFIDSnapshot(data map[string]any) error {
 		if !ok {
 			continue
 		}
-		recno := valueString(flight["recno"])
-		if recno == "" {
-			recno = strconv.Itoa(index)
-		}
-		if _, err := tx.Exec(
-			`INSERT OR IGNORE INTO fid_flights (
-				snapshot_id, recno, flight_number, registration, ac_type, gate,
-				from_station, to_station, sta, eta, ata, std, etd, atd,
-				lsodate, remarks, aog, long_turn, international
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			snapshotID, recno,
-			valueString(flight["FlightNumber"]), valueString(flight["RegistrationNumber"]),
-			valueString(flight["ACType"]), valueString(flight["GateNumber"]),
-			valueString(flight["FromStation"]), valueString(flight["ToStation"]),
+		key, recno := flightKey(flight, index)
+		if _, err := tx.Exec(`
+			INSERT INTO fid_flights (
+				flight_key, snapshot_id, flight_number, lsodate, recno, registration, ac_type, gate,
+				from_station, to_station, sta, eta, ata, std, etd, atd, remarks, aog, long_turn, international,
+				first_seen_at, last_seen_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(flight_key) DO UPDATE SET
+				snapshot_id = excluded.snapshot_id,
+				flight_number = excluded.flight_number,
+				lsodate = excluded.lsodate,
+				recno = excluded.recno,
+				registration = excluded.registration,
+				ac_type = excluded.ac_type,
+				gate = excluded.gate,
+				from_station = excluded.from_station,
+				to_station = excluded.to_station,
+				sta = excluded.sta, eta = excluded.eta, ata = excluded.ata,
+				std = excluded.std, etd = excluded.etd, atd = excluded.atd,
+				remarks = excluded.remarks,
+				aog = excluded.aog, long_turn = excluded.long_turn, international = excluded.international,
+				last_seen_at = excluded.last_seen_at`,
+			key, snapshotID,
+			valueString(flight["FlightNumber"]), valueString(flight["LSODate"]), recno,
+			valueString(flight["RegistrationNumber"]), valueString(flight["ACType"]),
+			valueString(flight["GateNumber"]), valueString(flight["FromStation"]), valueString(flight["ToStation"]),
 			valueString(flight["STA"]), valueString(flight["ETA"]), valueString(flight["ATA"]),
 			valueString(flight["STD"]), valueString(flight["ETD"]), valueString(flight["ATD"]),
-			valueString(flight["LSODate"]), valueString(flight["Comments_MX"]),
+			valueString(flight["Comments_MX"]),
 			flagInt(flight["AOG"]), flagInt(flight["LongTurn"]), flagInt(flight["International"]),
+			fetchedAt, fetchedAt,
 		); err != nil {
 			return err
 		}
