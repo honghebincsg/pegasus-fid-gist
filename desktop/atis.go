@@ -195,7 +195,7 @@ func fetchATISInfo(code string) map[string]any {
 	if combined == nil && arrival["text"] == "" && departure["text"] == "" {
 		return nil
 	}
-	return map[string]any{
+	return finalizeATIS(map[string]any{
 		"source_url": url,
 		"airport":    code,
 		"source":     "atis.info",
@@ -204,7 +204,7 @@ func fetchATISInfo(code string) map[string]any {
 		"combined":   combined,
 		"arrival":    arrival,
 		"departure":  departure,
-	}
+	}, code)
 }
 
 var (
@@ -272,16 +272,18 @@ func fetchATISGuru(code string) (map[string]any, bool) {
 	if arrival["text"] == "" && departure["text"] == "" {
 		return nil, true
 	}
-	return map[string]any{
-		"source_url": url,
-		"airport":    code,
-		"source":     "atis.guru",
-		"fetch_mode": "direct",
-		"fetched_at": utcNow(),
-		"combined":   nil,
-		"arrival":    arrival,
-		"departure":  departure,
-	}, true
+	data := map[string]any{
+		"source_url":      url,
+		"airport":         code,
+		"airport_name_en": grab(`Live digital ATIS for (.*?) Arrival ATIS`),
+		"source":          "atis.guru",
+		"fetch_mode":      "direct",
+		"fetched_at":      utcNow(),
+		"combined":        nil,
+		"arrival":         arrival,
+		"departure":       departure,
+	}
+	return finalizeATIS(data, code), true
 }
 
 func atisFromGistBody(resp *http.Response, code string) (map[string]any, error) {
@@ -358,6 +360,7 @@ func fetchATIS(code string) (map[string]any, error) {
 	}
 	if err == nil {
 		data["fetch_mode"] = "gist"
+		data = finalizeATIS(data, code)
 	}
 	return data, err
 }

@@ -61,8 +61,9 @@
   .atis-form button:disabled { opacity: .5; cursor: default; }
   .atis-hint { width: 100%; font-size: 12px; color: var(--muted); }
   .atis-body {
-    flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 14px;
-    padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel);
+    flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
+    display: flex; flex-direction: column; gap: 14px;
+    padding: 16px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel);
   }
   .loader { flex: 1; display: grid; place-items: center; gap: 14px; color: var(--muted); font-size: 14px; }
   .spinner {
@@ -72,14 +73,62 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   .atis-error { padding: 12px; border-radius: 8px; background: rgba(239,68,68,.12); color: #fca5a5; font-size: 14px; }
-  .atis-result { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-  .atis-card { min-width: 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: rgba(13,24,42,.6); }
-  .atis-card h3 { margin: 0 0 10px; font-size: 14px; color: #6ee7b7; letter-spacing: .5px; }
-  .atis-card h3 .time { margin-left: 10px; font-size: 12px; font-weight: 400; color: var(--muted); }
-  .atis-card p {
-    margin: 0; font-family: Consolas, "Courier New", monospace; font-size: 15px;
-    line-height: 1.75; color: #dbe7f5; overflow-wrap: anywhere;
+  .atis-result { display: flex; flex-direction: column; gap: 14px; width: 100%; max-width: min(1120px, 100%); min-width: 0; }
+  .atis-airport {
+    display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px;
+    padding: 2px 2px 12px; border-bottom: 1px solid var(--line);
   }
+  .atis-airport .name { font-size: 24px; font-weight: 700; letter-spacing: .5px; }
+  .atis-airport .sub { display: flex; align-items: center; gap: 8px; margin-top: 5px; font-size: 12px; color: var(--muted); }
+  .atis-airport .icao {
+    padding: 1px 7px; border: 1px solid rgba(125,211,252,.35); border-radius: 6px;
+    font-family: Consolas, monospace; font-size: 14px; color: #7dd3fc;
+  }
+  .atis-airport .iata { font-family: Consolas, monospace; font-size: 13px; color: #fde68a; }
+  .atis-airport .spacer { flex: 1; }
+  .atis-airport .badges { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-bottom: 2px; }
+  .atis-chip {
+    padding: 3px 9px; border-radius: 999px; font-size: 12px;
+    color: #6ee7b7; background: rgba(110,231,183,.14); border: 1px solid rgba(110,231,183,.25);
+  }
+  .atis-chip.source { color: #7dd3fc; background: rgba(125,211,252,.12); border-color: rgba(125,211,252,.25); }
+  .atis-card {
+    position: relative; width: 100%; min-width: 0; padding: 14px 16px;
+    border: 1px solid var(--line); border-left: 3px solid #6ee7b7; border-radius: 10px;
+    background: rgba(13,24,42,.6);
+  }
+  .atis-card.departure { border-left-color: #7dd3fc; }
+  .atis-card.combined { border-left-color: #fbbf24; }
+  .atis-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 9px; }
+  .atis-card-head h3 { margin: 0; font-size: 14px; color: #6ee7b7; letter-spacing: .5px; }
+  .atis-card-head .time { font-size: 12px; color: var(--muted); }
+  .copy-btn {
+    position: absolute; top: 10px; right: 12px; padding: 3px 10px;
+    border: 1px solid var(--line); border-radius: 6px;
+    background: rgba(148,163,184,.14); color: var(--text); font-size: 12px; cursor: pointer;
+  }
+  .copy-btn:hover { background: rgba(148,163,184,.26); }
+  .atis-card p {
+    margin: 0; font-family: Consolas, "Courier New", monospace; font-size: 14px;
+    line-height: 1.75; color: #dbe7f5; overflow-wrap: anywhere; word-break: break-word;
+  }
+  .runway-summary { display: flex; flex-wrap: wrap; gap: 12px; }
+  .runway-group {
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    border: 1px solid var(--line); border-radius: 10px; background: rgba(13,24,42,.6);
+  }
+  .runway-group.landing { border-color: rgba(134,239,172,.45); }
+  .runway-group.departure { border-color: rgba(125,211,252,.45); }
+  .runway-group .label { font-size: 12px; color: var(--muted); }
+  .runway-group .rwy {
+    padding: 1px 8px; border-radius: 6px; font-family: Consolas, monospace;
+    font-size: 18px; font-weight: 700;
+  }
+  .runway-group.landing .rwy { background: #86efac; color: #052e16; }
+  .runway-group.departure .rwy { background: #7dd3fc; color: #082f49; }
+  .rwy-mark { font-weight: 800; padding: 0 4px; border-radius: 4px; }
+  .rwy-mark.landing { background: #86efac; color: #052e16; }
+  .rwy-mark.departure { background: #7dd3fc; color: #082f49; }
   .atis-meta { font-size: 12px; color: var(--muted); }
   .empty-atis { flex: 1; display: grid; place-items: center; color: var(--muted); font-size: 15px; }
 
@@ -182,6 +231,15 @@
   .detail-item .k { display: block; font-size: 11px; color: var(--muted); margin-bottom: 2px; }
   .detail-item .v { font-size: 14px; color: var(--text); word-break: break-word; }
   .detail-item.wide { grid-column: 1 / -1; }
+  .toast {
+    position: fixed; top: 20px; left: 50%; z-index: 999;
+    transform: translateX(-50%) translateY(-100px);
+    padding: 10px 20px; border-radius: 8px;
+    background: rgba(34,197,94,.95); color: #fff;
+    font-size: 14px; transition: transform .3s;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast.error { background: rgba(239,68,68,.95); }
 </style>
 </head>
 <body>
@@ -294,21 +352,58 @@
       </div>
       <div class="atis-error" v-else-if="atisError">{{ atisError }}</div>
       <div class="atis-result" v-else-if="atisData">
-        <div class="atis-card" v-if="combinedText">
-          <h3>Combined ATIS <span class="time" v-if="atisData.combined.updated_at">{{ atisData.combined.updated_at }}</span><span class="time" v-if="atisData.combined.code">INFO {{ atisData.combined.code }}</span></h3>
-          <p>{{ combinedText }}</p>
+        <div class="atis-airport">
+          <div>
+            <div class="name">{{ airportName }}</div>
+            <div class="sub">
+              <span class="icao">{{ atisData.airport }}</span>
+              <span class="iata" v-if="atisData.iata">{{ atisData.iata }}</span>
+              <span v-if="airportEnglish">{{ airportEnglish }}</span>
+            </div>
+          </div>
+          <span class="spacer"></span>
+          <div class="badges">
+            <span class="atis-chip" v-if="atisInfoCode">INFO {{ atisInfoCode }}</span>
+            <span class="atis-chip source">{{ atisData.source || 'atis.guru' }}</span>
+          </div>
+        </div>
+        <div class="runway-summary" v-if="landingRunways.length || departureRunways.length">
+          <div class="runway-group landing" v-if="landingRunways.length">
+            <span class="label">落地跑道</span>
+            <span class="rwy" v-for="r in landingRunways" :key="'l-' + r">{{ r }}</span>
+          </div>
+          <div class="runway-group departure" v-if="departureRunways.length">
+            <span class="label">起飞跑道</span>
+            <span class="rwy" v-for="r in departureRunways" :key="'d-' + r">{{ r }}</span>
+          </div>
+        </div>
+        <div class="atis-card combined" v-if="combinedText">
+          <div class="atis-card-head">
+            <h3>Combined ATIS</h3>
+            <span class="time" v-if="atisData.combined.updated_at">{{ atisData.combined.updated_at }}</span>
+            <button class="copy-btn" @click="copyATIS(combinedText)">复制</button>
+          </div>
+          <p v-html="highlightRunways(combinedText) || '—'"></p>
         </div>
         <template v-else>
-          <div class="atis-card">
-            <h3>Arrival ATIS <span class="time" v-if="atisData.arrival.updated_at">{{ atisData.arrival.updated_at }} UTC</span></h3>
-            <p>{{ atisData.arrival.text || '暂无到达 ATIS' }}</p>
+          <div class="atis-card arrival">
+            <div class="atis-card-head">
+              <h3>Arrival ATIS</h3>
+              <span class="time" v-if="atisData.arrival.updated_at">{{ atisData.arrival.updated_at }} UTC</span>
+              <button class="copy-btn" @click="copyATIS(atisData.arrival.text)">复制</button>
+            </div>
+            <p v-html="highlightRunways(atisData.arrival.text) || '暂无到达 ATIS'"></p>
           </div>
-          <div class="atis-card">
-            <h3>Departure ATIS <span class="time" v-if="atisData.departure.updated_at">{{ atisData.departure.updated_at }} UTC</span></h3>
-            <p>{{ atisData.departure.text || '暂无起飞 ATIS' }}</p>
+          <div class="atis-card departure">
+            <div class="atis-card-head">
+              <h3>Departure ATIS</h3>
+              <span class="time" v-if="atisData.departure.updated_at">{{ atisData.departure.updated_at }} UTC</span>
+              <button class="copy-btn" @click="copyATIS(atisData.departure.text)">复制</button>
+            </div>
+            <p v-html="highlightRunways(atisData.departure.text) || '暂无起飞 ATIS'"></p>
           </div>
         </template>
-        <div class="atis-meta">机场 {{ atisData.airport }} · 数据源 {{ atisData.source || 'atis.guru' }} · 获取方式 {{ fetchModeLabel }} · 抓取时间 {{ atisData.fetched_at }}</div>
+        <div class="atis-meta">机场 {{ atisData.airport }} · 数据源 {{ atisData.source || 'atis.guru' }} · 获取方式 {{ fetchModeLabel }} · 抓取时间 {{ atisData.fetched_at }} </div>
       </div>
       <div class="empty-atis" v-else>输入机场代码开始查询</div>
     </div>
@@ -341,6 +436,8 @@
       </section>
     </div>
   </div>
+
+  <div class="toast" :class="{ show: toast.show, error: toast.type === 'error' }" v-if="toast.show">{{ toast.msg }}</div>
 </div>
 
 <script>
@@ -485,10 +582,79 @@ Vue.createApp({
       return '未知';
     });
 
+    const airportName = Vue.computed(() => {
+      const d = atisData.value;
+      if (!d) return '';
+      return d.airport_name || d.airport_name_en || d.airport || '—';
+    });
+
+    const airportEnglish = Vue.computed(() => {
+      const d = atisData.value;
+      if (!d || !d.airport_name_en) return '';
+      if (d.airport_name && d.airport_name === d.airport_name_en) return '';
+      return d.airport_name_en;
+    });
+
+    const atisInfoCode = Vue.computed(() => {
+      const d = atisData.value;
+      return (d && d.combined && d.combined.code) || '';
+    });
+
+    const normalizeRunway = raw => String(raw || '').toUpperCase().replace(/\s+/g, '');
+    const landingRunways = Vue.computed(() => {
+      const d = atisData.value;
+      return (d && d.runways && d.runways.landing) || [];
+    });
+    const departureRunways = Vue.computed(() => {
+      const d = atisData.value;
+      return (d && d.runways && d.runways.departure) || [];
+    });
+
+    function highlightRunways(text) {
+      if (!text) return '';
+      const safe = String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      const landing = new Set(landingRunways.value.map(normalizeRunway));
+      const departure = new Set(departureRunways.value.map(normalizeRunway));
+      return safe.replace(
+        /(\b(?:RWY|RY)S?\s*)((?:[0-9]{1,2}\s*[LRC]?)(?:\s*(?:&|,|AND|\/)\s*[0-9]{1,2}\s*[LRC]?)*)/gi,
+        (match, prefix, list) => {
+          const rendered = list.split(/(\s*(?:&|,|AND|\/)\s*)/i).map(part => {
+            const code = normalizeRunway(part);
+            if (!code) return part;
+            if (landing.has(code)) return `<span class="rwy-mark landing">${part}</span>`;
+            if (departure.has(code)) return `<span class="rwy-mark departure">${part}</span>`;
+            return part;
+          }).join('');
+          return prefix + rendered;
+        }
+      );
+    }
+
     const isEmpty = v => v === null || v === undefined || v === '';
     const openDetail = f => { selected.value = f; };
     const closeDetail = () => { selected.value = null; };
     const onKey = e => { if (e.key === 'Escape') closeDetail(); };
+
+    const toast = Vue.ref({ show: false, msg: '', type: 'success' });
+    let toastTimer = null;
+    const showToast = (msg, type = 'success') => {
+      toast.value = { show: true, msg, type };
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.value.show = false, 2000);
+    };
+
+    async function copyATIS(text) {
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast('已复制 ATIS 文本');
+      } catch (e) {
+        showToast('复制失败：' + ((e && e.message) || e), 'error');
+      }
+    }
 
     async function queryAtis() {
       const code = (atisCode.value || '').trim().toUpperCase();
@@ -509,6 +675,7 @@ Vue.createApp({
         const result = await resp.json();
         if (!result.ok) throw new Error(result.error || '查询失败');
         atisData.value = result.data;
+        showToast('查询成功');
       } catch (e) {
         atisError.value = (e && e.message) || String(e);
       } finally {
@@ -593,7 +760,9 @@ Vue.createApp({
 
     return { snap, statusInfo, selected, flights, flightCount, advisory, zulu, fetchedLocal, healthy,
              countdown, clock, tzName, lastError, lastLoad, text, yes, statusOf, timeTag, rowClass, remarkTitle,
-             openDetail, closeDetail, detail, page, atisCode, atisLoading, atisError, atisData, combinedText, fetchModeLabel, queryAtis };
+             openDetail, closeDetail, detail, page, atisCode, atisLoading, atisError, atisData, combinedText, fetchModeLabel,
+             airportName, airportEnglish, atisInfoCode, landingRunways, departureRunways,
+             highlightRunways, copyATIS, queryAtis, toast };
   }
 }).mount('#app');
 </script>

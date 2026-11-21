@@ -1,0 +1,132 @@
+package main
+
+import "strings"
+
+type airportMetaInfo struct {
+	NameCN string
+	NameEN string
+	IATA   string
+}
+
+// 常用机场名称；未收录的机场由 atis.guru 页面动态补充英文名。
+var airportMeta = map[string]airportMetaInfo{
+	"PANC": {"安克雷奇", "Ted Stevens Anchorage International", "ANC"},
+	"EHAM": {"阿姆斯特丹史基浦", "Amsterdam Schiphol", "AMS"},
+	"ZGGG": {"广州白云", "Guangzhou Baiyun International", "CAN"},
+	"ZBAA": {"北京首都", "Beijing Capital International", "PEK"},
+	"ZBAD": {"北京大兴", "Beijing Daxing International", "PKX"},
+	"ZSPD": {"上海浦东", "Shanghai Pudong International", "PVG"},
+	"ZSSS": {"上海虹桥", "Shanghai Hongqiao International", "SHA"},
+	"ZGSZ": {"深圳宝安", "Shenzhen Bao'an International", "SZX"},
+	"ZUUU": {"成都双流", "Chengdu Shuangliu International", "CTU"},
+	"ZUTF": {"成都天府", "Chengdu Tianfu International", "TFU"},
+	"ZUCK": {"重庆江北", "Chongqing Jiangbei International", "CKG"},
+	"ZPPP": {"昆明长水", "Kunming Changshui International", "KMG"},
+	"ZLXY": {"西安咸阳", "Xi'an Xianyang International", "XIY"},
+	"ZSHC": {"杭州萧山", "Hangzhou Xiaoshan International", "HGH"},
+	"ZSNJ": {"南京禄口", "Nanjing Lukou International", "NKG"},
+	"ZHHH": {"武汉天河", "Wuhan Tianhe International", "WUH"},
+	"ZGHA": {"长沙黄花", "Changsha Huanghua International", "CSX"},
+	"ZBTJ": {"天津滨海", "Tianjin Binhai International", "TSN"},
+	"ZSQD": {"青岛胶东", "Qingdao Jiaodong International", "TAO"},
+	"ZSNB": {"宁波栎社", "Ningbo Lishe International", "NGB"},
+	"ZJSY": {"三亚凤凰", "Sanya Phoenix International", "SYX"},
+	"ZJHK": {"海口美兰", "Haikou Meilan International", "HAK"},
+	"ZUGY": {"贵阳龙洞堡", "Guiyang Longdongbao International", "KWE"},
+	"VHHH": {"香港国际", "Hong Kong International", "HKG"},
+	"RCTP": {"台北桃园", "Taiwan Taoyuan International", "TPE"},
+	"RJTT": {"东京羽田", "Tokyo Haneda", "HND"},
+	"RJAA": {"东京成田", "Narita International", "NRT"},
+	"RJBB": {"大阪关西", "Kansai International", "KIX"},
+	"RKSI": {"首尔仁川", "Incheon International", "ICN"},
+	"WSSS": {"新加坡樟宜", "Singapore Changi", "SIN"},
+	"VTBS": {"曼谷素万那普", "Suvarnabhumi", "BKK"},
+	"WMKK": {"吉隆坡", "Kuala Lumpur International", "KUL"},
+	"WIII": {"雅加达", "Soekarno-Hatta International", "CGK"},
+	"RPLL": {"马尼拉", "Ninoy Aquino International", "MNL"},
+	"VIDP": {"德里", "Indira Gandhi International", "DEL"},
+	"VABB": {"孟买", "Chhatrapati Shivaji Maharaj International", "BOM"},
+	"OMDB": {"迪拜", "Dubai International", "DXB"},
+	"OTHH": {"多哈", "Hamad International", "DOH"},
+	"LLBG": {"特拉维夫", "Ben Gurion", "TLV"},
+	"LTFM": {"伊斯坦布尔", "Istanbul Airport", "IST"},
+	"KLAX": {"洛杉矶", "Los Angeles International", "LAX"},
+	"KJFK": {"纽约肯尼迪", "John F. Kennedy International", "JFK"},
+	"KORD": {"芝加哥奥黑尔", "O'Hare International", "ORD"},
+	"KATL": {"亚特兰大", "Hartsfield-Jackson Atlanta International", "ATL"},
+	"KDFW": {"达拉斯沃斯堡", "Dallas/Fort Worth International", "DFW"},
+	"KDEN": {"丹佛", "Denver International", "DEN"},
+	"KSFO": {"旧金山", "San Francisco International", "SFO"},
+	"KSEA": {"西雅图塔科马", "Seattle-Tacoma International", "SEA"},
+	"KLAS": {"拉斯维加斯", "Harry Reid International", "LAS"},
+	"KMIA": {"迈阿密", "Miami International", "MIA"},
+	"KIAH": {"休斯顿", "George Bush Intercontinental", "IAH"},
+	"KBOS": {"波士顿", "Boston Logan International", "BOS"},
+	"KEWR": {"纽瓦克", "Newark Liberty International", "EWR"},
+	"KPHL": {"费城", "Philadelphia International", "PHL"},
+	"KMSP": {"明尼阿波利斯", "Minneapolis-Saint Paul International", "MSP"},
+	"KDTW": {"底特律", "Detroit Metropolitan", "DTW"},
+	"KPHX": {"凤凰城", "Phoenix Sky Harbor International", "PHX"},
+	"KCLT": {"夏洛特", "Charlotte Douglas International", "CLT"},
+	"KMEM": {"孟菲斯", "Memphis International", "MEM"},
+	"KSDF": {"路易斯维尔", "Louisville Muhammad Ali International", "SDF"},
+	"KCVG": {"辛辛那提", "Cincinnati/Northern Kentucky International", "CVG"},
+	"KONT": {"安大略", "Ontario International", "ONT"},
+	"KOAK": {"奥克兰", "Oakland International", "OAK"},
+	"KSJC": {"圣何塞", "San Jose International", "SJC"},
+	"KSAN": {"圣地亚哥", "San Diego International", "SAN"},
+	"KPDX": {"波特兰", "Portland International", "PDX"},
+	"KSTL": {"圣路易斯", "St. Louis Lambert International", "STL"},
+	"KSMF": {"萨克拉门托", "Sacramento International", "SMF"},
+	"PHNL": {"檀香山", "Daniel K. Inouye International", "HNL"},
+	"PHOG": {"毛伊", "Kahului Airport", "OGG"},
+	"PGUM": {"关岛", "Antonio B. Won Pat International", "GUM"},
+	"EGLL": {"伦敦希思罗", "London Heathrow", "LHR"},
+	"EGKK": {"伦敦盖特威克", "London Gatwick", "LGW"},
+	"LFPG": {"巴黎戴高乐", "Paris Charles de Gaulle", "CDG"},
+	"EDDF": {"法兰克福", "Frankfurt Airport", "FRA"},
+	"EDDM": {"慕尼黑", "Munich Airport", "MUC"},
+	"LEMD": {"马德里", "Adolfo Suárez Madrid-Barajas", "MAD"},
+	"LEBL": {"巴塞罗那", "Josep Tarradellas Barcelona-El Prat", "BCN"},
+	"LIRF": {"罗马", "Leonardo da Vinci-Fiumicino", "FCO"},
+	"LSZH": {"苏黎世", "Zurich Airport", "ZRH"},
+	"LOWW": {"维也纳", "Vienna International", "VIE"},
+	"EKCH": {"哥本哈根", "Copenhagen Airport", "CPH"},
+	"ESSA": {"斯德哥尔摩", "Stockholm Arlanda", "ARN"},
+	"ENGM": {"奥斯陆", "Oslo Gardermoen", "OSL"},
+	"EFHK": {"赫尔辛基", "Helsinki-Vantaa", "HEL"},
+	"EBBR": {"布鲁塞尔", "Brussels Airport", "BRU"},
+	"EGCC": {"曼彻斯特", "Manchester Airport", "MAN"},
+	"LPPT": {"里斯本", "Humberto Delgado", "LIS"},
+	"LGAV": {"雅典", "Athens International", "ATH"},
+	"EPWA": {"华沙", "Warsaw Chopin", "WAW"},
+	"LKPR": {"布拉格", "Václav Havel Prague", "PRG"},
+	"LHBP": {"布达佩斯", "Budapest Ferenc Liszt", "BUD"},
+	"EIDW": {"都柏林", "Dublin Airport", "DUB"},
+	"CYYZ": {"多伦多", "Toronto Pearson International", "YYZ"},
+	"CYVR": {"温哥华", "Vancouver International", "YVR"},
+	"CYUL": {"蒙特利尔", "Montréal-Trudeau International", "YUL"},
+	"CYYC": {"卡尔加里", "Calgary International", "YYC"},
+	"SBGR": {"圣保罗", "São Paulo/Guarulhos International", "GRU"},
+	"SAEZ": {"布宜诺斯艾利斯", "Ministro Pistarini International", "EZE"},
+	"SKBO": {"波哥大", "El Dorado International", "BOG"},
+	"MMMX": {"墨西哥城", "Mexico City International", "MEX"},
+	"NZAA": {"奥克兰", "Auckland Airport", "AKL"},
+	"YSSY": {"悉尼", "Sydney Kingsford Smith", "SYD"},
+	"YMML": {"墨尔本", "Melbourne Airport", "MEL"},
+	"YBBN": {"布里斯班", "Brisbane Airport", "BNE"},
+	"YPPH": {"珀斯", "Perth Airport", "PER"},
+	"NZCH": {"基督城", "Christchurch Airport", "CHC"},
+}
+
+func annotateAirport(data map[string]any, code string) map[string]any {
+	if data == nil {
+		return nil
+	}
+	if meta, ok := airportMeta[strings.ToUpper(code)]; ok {
+		data["airport_name"] = meta.NameCN
+		data["airport_name_en"] = meta.NameEN
+		data["iata"] = meta.IATA
+	}
+	return data
+}
