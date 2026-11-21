@@ -318,7 +318,11 @@
   </div>
 
   <main>
-    <div class="empty" v-if="!flights.length">暂无航班数据</div>
+    <div class="loader" v-if="fidLoading && !flights.length">
+      <div class="spinner"></div>
+      <p>正在加载航班数据 …</p>
+    </div>
+    <div class="empty" v-else-if="!flights.length">暂无航班数据</div>
     <table v-else>
       <colgroup>
         <col style="width:8%">
@@ -398,7 +402,7 @@
             <span class="age-badge" v-if="batchAgeText" :class="batchAgeClass">{{ batchAgeText }}</span>
             <span v-if="atisBatchError" style="color:#fca5a5">{{ atisBatchError }}</span>
             <span class="spacer"></span>
-            <button @click="loadATISBatch" :disabled="atisBatchLoading">{{ atisBatchLoading ? '刷新中…' : '刷新' }}</button>
+            <button @click="loadATISBatch(true)" :disabled="atisBatchLoading">{{ atisBatchLoading ? '刷新中…' : '刷新' }}</button>
           </div>
           <div class="atis-groups">
             <section class="atis-group" v-for="g in atisGroups" :key="g.key">
@@ -649,6 +653,7 @@ Vue.createApp({
     if (/^[A-Z]{4}$/.test(initialCode)) atisCode.value = initialCode;
     const lastError = Vue.ref('');
     const lastLoad = Vue.ref('—');
+    const fidLoading = Vue.ref(true);
     const countdown = Vue.ref(60);
     const clock = Vue.ref('');
     const tzName = Vue.ref('');
@@ -894,7 +899,12 @@ Vue.createApp({
       }
     }
 
-    async function loadATISBatch() {
+    const ATIS_BATCH_TTL = 5 * 60 * 1000;
+    let atisBatchLoadedAt = 0;
+
+    async function loadATISBatch(force = false) {
+      // 5 分钟内的缓存直接复用，切换页面回来不重新抓取
+      if (!force && atisBatch.value && Date.now() - atisBatchLoadedAt < ATIS_BATCH_TTL) return;
       atisBatchLoading.value = true;
       atisBatchError.value = '';
       try {
@@ -906,6 +916,7 @@ Vue.createApp({
         const result = await resp.json();
         if (!result.ok) throw new Error(result.error || '加载失败');
         atisBatch.value = result.data;
+        atisBatchLoadedAt = Date.now();
       } catch (e) {
         atisBatchError.value = (e && e.message) || String(e);
       } finally {
@@ -1005,6 +1016,7 @@ Vue.createApp({
       } catch (e) {
         lastError.value = e.message || String(e);
       }
+      fidLoading.value = false;
       countdown.value = REFRESH_MS / 1000;
     }
 
@@ -1019,12 +1031,12 @@ Vue.createApp({
       tickTimer = setInterval(tick, 1000);
       window.addEventListener('keydown', onKey);
       load();
-      if (page.value === 'atis') loadATISBatch();
-      Vue.watch(page, v => { if (v === 'atis') loadATISBatch(); });
+      if (page.value === 'atis' && atisView.value === 'batch') loadATISBatch();
+      Vue.watch(page, v => { if (v === 'atis' && atisView.value === 'batch') loadATISBatch(); });
       if (params.get('auto') === '1' && page.value === 'atis') queryAtis();
       refreshTimer = setInterval(load, REFRESH_MS);
       batchTimer = setInterval(() => {
-        if (page.value === 'atis' && atisView.value === 'batch') loadATISBatch();
+        if (page.value === 'atis' && atisView.value === 'batch') loadATISBatch(true);
       }, 5 * 60 * 1000);
       setInterval(() => { if (countdown.value > 0) countdown.value--; }, 1000);
     });
@@ -1036,7 +1048,7 @@ Vue.createApp({
     });
 
     return { snap, statusInfo, selected, flights, flightCount, advisory, zulu, fetchedLocal, healthy,
-             countdown, clock, tzName, lastError, lastLoad, text, yes, statusOf, timeTag, rowClass, remarkTitle,
+             countdown, clock, tzName, lastError, lastLoad, fidLoading, text, yes, statusOf, timeTag, rowClass, remarkTitle,
              openDetail, closeDetail, detail, page, atisCode, atisLoading, atisError, atisData, combinedText, fetchModeLabel,
              airportName, airportEnglish, atisInfoCode, landingRunways, departureRunways,
              latestATISTime, relativeTime, ageClass, highlightRunways, copyATIS, queryAtis, toast,
