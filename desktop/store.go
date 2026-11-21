@@ -364,6 +364,7 @@ func handleStoreFID(w http.ResponseWriter, r *http.Request) {
 func newAncAPIHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/atis", handleATIS)
+	mux.HandleFunc("/atis/batch", handleATISBatch)
 	mux.HandleFunc("/store/fid", handleStoreFID)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -88,6 +88,53 @@ func handleATIS(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": data})
 }
 
+func handleATISBatch(w http.ResponseWriter, r *http.Request) {
+	allowCORS(w)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"ok": false, "error": "method not allowed"})
+		return
+	}
+	data, err := fetchBatchATIS()
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": data})
+}
+
+// fetchBatchATIS 从 Gist 读取批量缓存，并补全机场名称与跑道信息。
+func fetchBatchATIS() (map[string]any, error) {
+	url := fmt.Sprintf("%satis_all.json?t=%d", gistRawBase, time.Now().Unix())
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("读取缓存失败：%v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("缓存尚未生成，请等待首次批量抓取完成")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("读取缓存失败（HTTP %d）", resp.StatusCode)
+	}
+	var data map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, fmt.Errorf("缓存格式错误：%v", err)
+	}
+	if airports, ok := data["airports"].([]any); ok {
+		for _, item := range airports {
+			if block, ok := item.(map[string]any); ok {
+				code, _ := block["airport"].(string)
+				finalizeATIS(block, code)
+			}
+		}
+	}
+	return data, nil
+}
+
 func tokenPath() string {
 	if p := os.Getenv("GH_DISPATCH_TOKEN_FILE"); p != "" {
 		return p

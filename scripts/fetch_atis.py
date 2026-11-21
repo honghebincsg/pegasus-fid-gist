@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""抓取机场 ATIS：美国机场优先 atis.info，其余使用 atis.guru，并发布到 GitHub Gist。"""
+"""抓取机场 ATIS：美国机场优先 atis.info，其余使用 atis.guru，并发布到 GitHub Gist。
+
+两种模式：
+- 单机场：ATIS_CODE=ZGGG（workflow_dispatch 输入）
+- 批量：ATIS_CODES=ZGGG,ZGSZ,...（定时批量缓存，额外生成 atis_all.json 汇总）
+"""
 
 import datetime as dt
 import html as html_lib
@@ -19,6 +24,21 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/124.0.0.0 Safari/537.36"
 )
+
+# 常用机场批量缓存顺序：国内 -> 美国 -> 欧洲
+COMMON_AIRPORTS = [
+    ("ZGGG", "cn"),
+    ("ZGSZ", "cn"),
+    ("ZUCK", "cn"),
+    ("ZSPD", "cn"),
+    ("PANC", "us"),
+    ("KJFK", "us"),
+    ("KORD", "us"),
+    ("KLAX", "us"),
+    ("KMIA", "us"),
+    ("EHAM", "eu"),
+]
+REGION_BY_CODE = dict(COMMON_AIRPORTS)
 
 
 def utc_now() -> str:
@@ -122,20 +142,72 @@ def extract(text: str, code: str) -> dict:
     }
 
 
-def build_text(data: dict) -> str:
-    parts = []
-    combined = data.get("combined")
-    if combined:
-        parts.append(
-            f"COMBINED ATIS {combined.get('code', '')} {combined.get('updated_at', '')}\n"
-            f"{combined.get('text', '')}"
-        )
-    else:
-        arrival = data.get("arrival") or {}
-        departure = data.get("departure") or {}
-        parts.append(f"ARRIVAL ATIS {arrival.get('updated_at', '')}\n{arrival.get('text', '')}")
-        parts.append(f"DEPARTURE ATIS {departure.get('updated_at', '')}\n{departure.get('text', '')}")
-    return "\n\n".join(parts).strip() + "\n"
+def build_snapshot(code: str):
+    """抓取单个机场，返回 (snapshot, status)。失败时 snapshot 带 ok=false。"""
+    status = {"ok": False, "checked_at": utc_now(), "airport": code}
+    try:
+        info = fetch_atisinfo(code)
+        if info:
+            snapshot = {
+                "source_url": info["source_url"],
+                "airport": code,
+                "source": "atis.info",
+                "fetched_at": utc_now(),
+                "combined": info["combined"],
+                "arrival": info["arrival"],
+                "departure": info["departure"],
+                "ok": True,
+            }
+            status.update(
+                ok=True,
+                source="atis.info",
+                combined_code=(info["combined"] or {}).get("code", ""),
+                arrival_updated=info["arrival"]["updated_at"],
+                departure_updated=info["departure"]["updated_at"],
+            )
+            return snapshot, status
+
+        url = f"https://atis.guru/atis/{code}"
+        page = fetch(url)
+        data = extract(page_text(page), code)
+        if data["arrival"]["text"] or data["departure"]["text"]:
+            snapshot = {
+                "source_url": url,
+                "airport": code,
+                "source": "atis.guru",
+                "fetched_at": utc_now(),
+                "combined": None,
+                "arrival": data["arrival"],
+                "departure": data["departure"],
+                "ok": True,
+            }
+            status.update(
+                ok=True,
+                source="atis.guru",
+                arrival_updated=data["arrival"]["updated_at"],
+                departure_updated=data["departure"]["updated_at"],
+            )
+            return snapshot, status
+
+        status.update(ok=False, source="atis.guru", error="该机场暂无 ATIS 数据")
+        print(f"::warning::no ATIS data found for {code}")
+        return {
+            "airport": code,
+            "ok": False,
+            "error": "该机场暂无 ATIS 数据",
+            "checked_at": utc_now(),
+            "source": "atis.guru",
+        }, status
+    except Exception as exc:
+        status["error"] = f"{type(exc).__name__}: {exc}"
+        print(f"::error::Fetch failed for {code}: {status['error']}")
+        return {
+            "airport": code,
+            "ok": False,
+            "error": status["error"],
+            "checked_at": utc_now(),
+            "source": "",
+        }, status
 
 
 def publish(token: str, gist_id: str, files: dict[str, str | None], description: str) -> dict:
@@ -175,87 +247,49 @@ def publish(token: str, gist_id: str, files: dict[str, str | None], description:
         return json.load(resp)
 
 
-def main() -> int:
+def legacy_files(code: str) -> dict[str, None]:
+    return {
+        f"atis_{code.lower()}.json": None,
+        f"atis_{code.lower()}.txt": None,
+        f"atis_{code.lower()}_status.json": None,
+    }
+
+
+def publish_gist(token: str, gist_id: str, files: dict, description: str, lines: list[str]) -> int:
+    if not token or not gist_id:
+        lines.append("- 未发布到 Gist（缺少 GIST_TOKEN/GIST_ID）")
+        return 0
+    try:
+        gist = publish(token, gist_id, files, description)
+        lines.append(f"- Gist：{gist.get('html_url', '')}")
+        return 0
+    except Exception as exc:
+        print(f"::error::Gist publish failed: {exc}")
+        lines.append(f"- Gist 发布失败：`{exc}`")
+        return 1
+
+
+def emit_summary(lines: list[str]) -> None:
+    summary = "\n".join(lines) + "\n"
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary_path:
+        with open(summary_path, "a", encoding="utf-8") as fh:
+            fh.write(summary)
+    else:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        print(summary)
+
+
+def run_single(token: str, gist_id: str) -> int:
     code = (os.environ.get("ATIS_CODE") or DEFAULT_CODE).strip().upper()
     if not re.fullmatch(r"[A-Z]{4}", code):
         print(f"::error::invalid ICAO code: {code!r}")
         return 2
-    token = os.environ.get("GIST_TOKEN", "").strip()
-    gist_id = os.environ.get("GIST_ID", "").strip()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    status = {"ok": False, "checked_at": utc_now(), "airport": code}
-    files: dict[str, str] = {}
-    exit_code = 0
-    snapshot = None
-
-    try:
-        info = fetch_atisinfo(code)
-        if info:
-            data = {
-                "combined": info["combined"],
-                "arrival": info["arrival"],
-                "departure": info["departure"],
-            }
-            snapshot = {
-                "source_url": info["source_url"],
-                "airport": code,
-                "source": "atis.info",
-                "fetched_at": utc_now(),
-                **data,
-            }
-            status.update(
-                ok=True,
-                source="atis.info",
-                combined_code=(info["combined"] or {}).get("code", ""),
-                arrival_updated=info["arrival"]["updated_at"],
-                departure_updated=info["departure"]["updated_at"],
-            )
-            snapshot["ok"] = True
-            files[f"{code}.json"] = json.dumps(snapshot, ensure_ascii=False, indent=2)
-        else:
-            url = f"https://atis.guru/atis/{code}"
-            html = fetch(url)
-            text = page_text(html)
-            data = extract(text, code)
-            if data["arrival"]["text"] or data["departure"]["text"]:
-                data["combined"] = None
-                snapshot = {
-                    "source_url": url,
-                    "airport": code,
-                    "source": "atis.guru",
-                    "fetched_at": utc_now(),
-                    **data,
-                }
-                status.update(
-                    ok=True,
-                    source="atis.guru",
-                    arrival_updated=data["arrival"]["updated_at"],
-                    departure_updated=data["departure"]["updated_at"],
-                )
-                snapshot["ok"] = True
-                files[f"{code}.json"] = json.dumps(snapshot, ensure_ascii=False, indent=2)
-            else:
-                status.update(ok=False, source="atis.guru", error="该机场暂无 ATIS 数据")
-                files[f"{code}.json"] = json.dumps(
-                    {
-                        "airport": code,
-                        "ok": False,
-                        "error": "该机场暂无 ATIS 数据",
-                        "checked_at": utc_now(),
-                        "source": "atis.guru",
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                )
-                print(f"::warning::no ATIS data found for {code}")
-    except Exception as exc:
-        status["error"] = f"{type(exc).__name__}: {exc}"
-        exit_code = 1
-        print(f"::error::Fetch failed: {status['error']}")
-
-    for legacy in (f"atis_{code.lower()}.json", f"atis_{code.lower()}.txt", f"atis_{code.lower()}_status.json"):
-        files[legacy] = None
+    snapshot, status = build_snapshot(code)
+    files: dict[str, str | None] = {f"{code}.json": json.dumps(snapshot, ensure_ascii=False, indent=2)}
+    files.update(legacy_files(code))
     for name, content in files.items():
         if content is not None:
             (OUT_DIR / name).write_text(content, encoding="utf-8", newline="\n")
@@ -276,28 +310,95 @@ def main() -> int:
         if status.get("departure_updated"):
             lines.append(f"- 起飞 ATIS 更新：{status['departure_updated']}")
     else:
-        lines.append(f"- 错误：`{status['error']}`")
+        lines.append(f"- 错误：`{status.get('error', '')}`")
 
-    if token and gist_id:
-        try:
-            gist = publish(token, gist_id, files, f"ATIS {code}, last success {status['checked_at']}")
-            lines.append(f"- Gist：{gist.get('html_url', '')}")
-        except Exception as exc:
-            exit_code = 1
-            print(f"::error::Gist publish failed: {exc}")
-            lines.append(f"- Gist 发布失败：`{exc}`")
-    else:
-        lines.append("- 未发布到 Gist（缺少 GIST_TOKEN/GIST_ID）")
-
-    summary = "\n".join(lines) + "\n"
-    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
-    if summary_path:
-        with open(summary_path, "a", encoding="utf-8") as fh:
-            fh.write(summary)
-    else:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        print(summary)
+    exit_code = 0 if status["ok"] else 1
+    exit_code |= publish_gist(
+        token, gist_id, files, f"ATIS {code}, last success {status['checked_at']}", lines
+    )
+    emit_summary(lines)
     return exit_code
+
+
+def run_batch(raw_codes: str, token: str, gist_id: str) -> int:
+    codes: list[tuple[str, str]] = []
+    for part in raw_codes.split(","):
+        code = part.strip().upper()
+        if not code:
+            continue
+        if not re.fullmatch(r"[A-Z]{4}", code):
+            print(f"::error::invalid ICAO code: {code!r}")
+            return 2
+        codes.append((code, REGION_BY_CODE.get(code, "other")))
+    if not codes:
+        print("::error::ATIS_CODES is empty")
+        return 2
+
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    files: dict[str, str | None] = {}
+    airports: list[dict] = []
+    ok_count = 0
+    started = time.time()
+
+    for code, region in codes:
+        snapshot, status = build_snapshot(code)
+        if status["ok"]:
+            ok_count += 1
+        item = dict(snapshot)
+        item["region"] = region
+        airports.append(item)
+        files[f"{code}.json"] = json.dumps(snapshot, ensure_ascii=False, indent=2)
+        print(f"[batch] {code}: {'ok' if status['ok'] else 'fail'}"
+              f" ({status.get('source', '—')})", flush=True)
+        time.sleep(0.5)
+
+    aggregate = {
+        "ok": ok_count > 0,
+        "fetched_at": utc_now(),
+        "count": len(airports),
+        "ok_count": ok_count,
+        "airports": airports,
+    }
+    files["atis_all.json"] = json.dumps(aggregate, ensure_ascii=False, indent=2)
+    for code, _ in codes:
+        files.update(legacy_files(code))
+    for name, content in files.items():
+        if content is not None:
+            (OUT_DIR / name).write_text(content, encoding="utf-8", newline="\n")
+
+    lines = [
+        "## ATIS 批量抓取结果",
+        "",
+        f"- 机场数：{len(airports)}，成功：{ok_count}",
+        f"- 时间（UTC）：{aggregate['fetched_at']}",
+        f"- 耗时：{time.time() - started:.1f} 秒",
+        "",
+        "| 机场 | 区域 | 状态 | 数据源 |",
+        "| --- | --- | --- | --- |",
+    ]
+    for item in airports:
+        lines.append(
+            f"| {item['airport']} | {item['region']} | "
+            f"{'成功' if item.get('ok') else '失败'} | {item.get('source') or '—'} |"
+        )
+
+    exit_code = 0 if ok_count > 0 else 1
+    exit_code |= publish_gist(
+        token, gist_id, files,
+        f"ATIS batch {len(airports)} airports, {ok_count} ok, {aggregate['fetched_at']}",
+        lines,
+    )
+    emit_summary(lines)
+    return exit_code
+
+
+def main() -> int:
+    token = os.environ.get("GIST_TOKEN", "").strip()
+    gist_id = os.environ.get("GIST_ID", "").strip()
+    batch_codes = os.environ.get("ATIS_CODES", "").strip()
+    if batch_codes:
+        return run_batch(batch_codes, token, gist_id)
+    return run_single(token, gist_id)
 
 
 if __name__ == "__main__":
