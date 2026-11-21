@@ -279,6 +279,34 @@
   }
   .toast.show { transform: translateX(-50%) translateY(0); }
   .toast.error { background: rgba(239,68,68,.95); }
+  .hist-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .hist-toolbar select {
+    padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line);
+    background: rgba(9,16,29,.8); color: var(--text); font-size: 13px;
+  }
+  .hist-toolbar button {
+    padding: 7px 14px; border: 0; border-radius: 8px; background: rgba(148,163,184,.14);
+    color: var(--text); font-size: 12px; cursor: pointer;
+  }
+  .hist-toolbar button:hover { background: rgba(148,163,184,.26); }
+  .hist-count { color: var(--muted); font-size: 13px; }
+  .hist-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .hist-table th {
+    text-align: left; padding: 8px 10px; background: rgba(148,163,184,.1);
+    color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 1;
+  }
+  .hist-table td { padding: 7px 10px; border-bottom: 1px solid rgba(148,163,184,.08); white-space: nowrap; }
+  .hist-table tr:hover td { background: rgba(148,163,184,.06); }
+  .hist-table td.time { color: #cbd5e1; font-variant-numeric: tabular-nums; }
+  .hist-table .rwy { display: inline-block; padding: 1px 7px; margin-right: 4px; border-radius: 5px; font-weight: 600; font-size: 12px; }
+  .hist-table .rwy.landing { background: #86efac; color: #052e16; }
+  .hist-table .rwy.departure { background: #7dd3fc; color: #082f49; }
+  .hist-table .info-chip {
+    display: inline-block; padding: 1px 8px; border-radius: 5px; font-weight: 700;
+    color: #6ee7b7; background: rgba(110,231,183,.14); border: 1px solid rgba(110,231,183,.25);
+  }
+  .hist-table td.empty { color: rgba(148,163,184,.45); }
 </style>
 </head>
 <body>
@@ -381,7 +409,8 @@
   <section class="atis" v-else>
     <div class="atis-head">
       <h2>Airport ATIS</h2>
-      <button class="back-btn" v-if="atisView === 'single'" @click="backToBatch">← 全部机场</button>
+      <button class="back-btn" v-if="atisView !== 'batch'" @click="backToBatch">← 全部机场</button>
+      <button class="back-btn" v-if="atisView === 'batch'" @click="openHistory">跑道历史</button>
       <div class="atis-form">
         <input v-model="atisCode" maxlength="4" placeholder="ZGGG" :disabled="atisLoading"
                @input="atisCode = atisCode.toUpperCase()" @keyup.enter="queryAtis">
@@ -473,6 +502,58 @@
           </div>
         </template>
         <div class="empty-atis" v-else>暂无缓存数据</div>
+      </template>
+      <template v-else-if="atisView === 'history'">
+        <div class="hist-toolbar">
+          <select v-model="historyAirport" @change="loadHistory(true)">
+            <option v-for="a in historyAirports" :key="a.code" :value="a.code">{{ a.code }} · {{ a.name }}</option>
+          </select>
+          <select v-model.number="historyMonths" @change="loadHistory(true)">
+            <option :value="1">近 1 个月</option>
+            <option :value="3">近 3 个月</option>
+            <option :value="6">近 6 个月</option>
+            <option :value="12">近 12 个月</option>
+          </select>
+          <span class="hist-count" v-if="historyData">共 {{ historyData.count }} 条 · 月份 {{ (historyData.months || []).join('、') || '—' }}</span>
+          <span class="spacer"></span>
+          <button @click="loadHistory(true)" :disabled="historyLoading">{{ historyLoading ? '加载中…' : '刷新' }}</button>
+        </div>
+        <div class="loader" v-if="historyLoading && !historyData">
+          <div class="spinner"></div>
+          <p>正在从仓库读取 {{ historyAirport }} 跑道历史 …</p>
+        </div>
+        <div class="atis-error" v-else-if="historyError && !historyData">{{ historyError }}</div>
+        <template v-else-if="historyData && historyData.rows.length">
+          <div v-if="historyError" class="atis-error" style="margin-bottom:10px">{{ historyError }}</div>
+          <table class="hist-table">
+            <thead>
+              <tr>
+                <th>到达报文</th>
+                <th>起飞报文</th>
+                <th>INFO</th>
+                <th>落地跑道</th>
+                <th>起飞跑道</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(r, i) in historyData.rows" :key="i">
+                <td class="time" :title="r.arrival_at">{{ historyTime(r.arrival_at) }}</td>
+                <td class="time" :title="r.departure_at">{{ historyTime(r.departure_at) }}</td>
+                <td><span class="info-chip" v-if="r.info">{{ r.info }}</span><span v-else>—</span></td>
+                <td :class="{ empty: !r.landing.length }">
+                  <span class="rwy landing" v-for="x in r.landing" :key="'l' + x">{{ x }}</span>
+                  <template v-if="!r.landing.length">—</template>
+                </td>
+                <td :class="{ empty: !r.departure.length }">
+                  <span class="rwy departure" v-for="x in r.departure" :key="'d' + x">{{ x }}</span>
+                  <template v-if="!r.departure.length">—</template>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </template>
+        <div class="empty-atis" v-else-if="historyData">该机场在所选月份内暂无记录</div>
+        <div class="empty-atis" v-else>正在准备…</div>
       </template>
       <template v-else>
         <div class="loader" v-if="atisLoading">
@@ -647,6 +728,13 @@ Vue.createApp({
     const atisBatch = Vue.ref(null);
     const atisBatchLoading = Vue.ref(false);
     const atisBatchError = Vue.ref('');
+    const historyAirport = Vue.ref('ZGGG');
+    const historyMonths = Vue.ref(3);
+    const historyData = Vue.ref(null);
+    const historyLoading = Vue.ref(false);
+    const historyError = Vue.ref('');
+    let historyLoadedKey = '';
+    let historyLoadedAt = 0;
     const params = new URLSearchParams(location.search);
     if (params.get('page') === 'atis') page.value = 'atis';
     const initialCode = (params.get('code') || '').trim().toUpperCase();
@@ -924,6 +1012,56 @@ Vue.createApp({
       }
     }
 
+    const historyAirports = Vue.computed(() => {
+      const list = (atisBatch.value && Array.isArray(atisBatch.value.airports)) ? atisBatch.value.airports : [];
+      const items = list.map(d => ({ code: d.airport, name: batchName(d) })).filter(x => x.code);
+      if (items.length) return items;
+      return [
+        { code: 'ZGGG', name: 'Guangzhou' }, { code: 'ZGSZ', name: 'Shenzhen' },
+        { code: 'ZUCK', name: 'Chongqing' }, { code: 'ZSPD', name: 'Shanghai Pudong' },
+        { code: 'PANC', name: 'Anchorage' }, { code: 'KJFK', name: 'New York JFK' },
+        { code: 'KORD', name: 'Chicago O\'Hare' }, { code: 'KLAX', name: 'Los Angeles' },
+        { code: 'KMIA', name: 'Miami' }, { code: 'EHAM', name: 'Amsterdam' },
+      ];
+    });
+
+    function historyTime(raw) {
+      const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})Z$/.exec(raw || '');
+      if (!m) return raw || '—';
+      return `${m[2]}-${m[3]} ${m[4]}:${m[5]}Z`;
+    }
+
+    async function loadHistory(force = false) {
+      const code = historyAirport.value;
+      const key = `${code}/${historyMonths.value}`;
+      if (!force && historyLoadedKey === key && Date.now() - historyLoadedAt < ATIS_BATCH_TTL) return;
+      historyLoading.value = true;
+      historyError.value = '';
+      try {
+        const resp = await fetch(`http://ancapi.localhost/atis/history?airport=${code}&months=${historyMonths.value}&t=${Date.now()}`, {
+          cache: 'no-store',
+          signal: AbortSignal.timeout(60000),
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const result = await resp.json();
+        if (!result.ok) throw new Error(result.error || '加载失败');
+        historyData.value = result.data;
+        historyLoadedKey = key;
+        historyLoadedAt = Date.now();
+      } catch (e) {
+        historyError.value = (e && e.message) || String(e);
+      } finally {
+        historyLoading.value = false;
+      }
+    }
+
+    function openHistory() {
+      atisView.value = 'history';
+      const list = historyAirports.value;
+      if (!list.some(a => a.code === historyAirport.value) && list.length) historyAirport.value = list[0].code;
+      loadHistory();
+    }
+
     const backToBatch = () => { atisView.value = 'batch'; };
 
     async function queryAtis() {
@@ -1054,7 +1192,8 @@ Vue.createApp({
              latestATISTime, relativeTime, ageClass, highlightRunways, copyATIS, queryAtis, toast,
              atisView, atisBatch, atisBatchLoading, atisBatchError, atisGroups, loadATISBatch, backToBatch,
              batchName, batchEnglish, batchInfoCode, batchLatestTime, batchRunways, batchAgeText, batchAgeClass,
-             highlightRunwaysFor };
+             highlightRunwaysFor, historyAirport, historyMonths, historyData, historyLoading, historyError,
+             historyAirports, historyTime, loadHistory, openHistory };
   }
 }).mount('#app');
 </script>

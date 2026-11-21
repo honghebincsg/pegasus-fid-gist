@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   fetch:
@@ -27,4 +27,6 @@ jobs:
           ATIS_CODES: "ZGGG,ZGSZ,ZUCK,ZSPD,PANC,KJFK,KORD,KLAX,KMIA,EHAM"
           GIST_TOKEN: ${{ secrets.FID_GIST_TOKEN }}
           GIST_ID: ${{ secrets.FID_GIST_ID }}
+          HISTORY_TOKEN: ${{ github.token }}
+          HISTORY_REPO: ${{ github.repository }}
         run: python3 scripts/fetch_atis.py

@@ -85,9 +85,6 @@ func handleATIS(w http.ResponseWriter, r *http.Request) {
 	if err := saveATIS(data); err != nil {
 		log.Printf("save ATIS: %v", err)
 	}
-	if err := saveATISHistoryBatch([]map[string]any{data}); err != nil {
-		log.Printf("save ATIS history: %v", err)
-	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": data})
 }
 
@@ -144,16 +141,11 @@ func fetchBatchATISOnce() (map[string]any, error) {
 		return nil, fmt.Errorf("缓存格式错误：%v", err)
 	}
 	if airports, ok := data["airports"].([]any); ok {
-		finalized := make([]map[string]any, 0, len(airports))
 		for _, item := range airports {
 			if block, ok := item.(map[string]any); ok {
 				code, _ := block["airport"].(string)
 				finalizeATIS(block, code)
-				finalized = append(finalized, block)
 			}
-		}
-		if err := saveATISHistoryBatch(finalized); err != nil {
-			log.Printf("save ATIS history: %v", err)
 		}
 	}
 	return data, nil
