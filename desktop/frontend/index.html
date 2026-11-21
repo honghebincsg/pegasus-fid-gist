@@ -307,6 +307,21 @@
     color: #6ee7b7; background: rgba(110,231,183,.14); border: 1px solid rgba(110,231,183,.25);
   }
   .hist-table td.empty { color: rgba(148,163,184,.45); }
+  .hist-toolbar input {
+    padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line);
+    background: rgba(9,16,29,.8); color: var(--text); font-size: 13px; width: 150px;
+  }
+  .meta .meta-btn {
+    padding: 5px 12px; border: 1px solid rgba(125,211,252,.35); border-radius: 7px;
+    background: rgba(125,211,252,.12); color: #bae6fd; font-size: 12px; cursor: pointer;
+  }
+  .meta .meta-btn:hover { background: rgba(125,211,252,.22); }
+  .hist-table .gate-chip {
+    display: inline-block; padding: 1px 8px; border-radius: 5px; font-weight: 700;
+    color: #fca5a5; background: rgba(248,113,113,.12); border: 1px solid rgba(248,113,113,.25);
+  }
+  .hist-table .alert-mark { color: #fbbf24; font-size: 12px; }
+  .gate-modal h3 { margin: 0; font-size: 16px; color: #e2e8f0; }
 </style>
 </head>
 <body>
@@ -338,6 +353,7 @@
     <span>航班<b>{{ flightCount }}</b></span>
     <span>下次刷新<b>{{ countdown }}s</b></span>
     <span class="spacer"></span>
+    <button class="meta-btn" @click="openGateHistory('')">停机位历史</button>
     <span v-if="!healthy" class="err">数据未更新，正在重试</span>
   </div>
 
@@ -404,6 +420,56 @@
     <span v-if="lastError" class="err">错误：{{ lastError }}</span>
     <span v-else>最后刷新 {{ lastLoad }}</span>
   </footer>
+
+  <div class="modal-mask" v-if="gateHistOpen" @click.self="closeGateHistory">
+    <div class="modal gate-modal">
+      <div class="hist-toolbar">
+        <h3>停机位历史</h3>
+        <select v-model.number="gateHistMonths" @change="loadGateHistory(true)">
+          <option :value="1">近 1 个月</option>
+          <option :value="3">近 3 个月</option>
+          <option :value="6">近 6 个月</option>
+          <option :value="12">近 12 个月</option>
+        </select>
+        <input v-model="gateHistFlight" placeholder="航班号 / 机号" @keyup.enter="loadGateHistory(true)">
+        <button @click="loadGateHistory(true)" :disabled="gateHistLoading">{{ gateHistLoading ? '加载中…' : '刷新' }}</button>
+        <span class="hist-count" v-if="gateHistData">共 {{ gateHistData.count }} 条</span>
+        <span class="spacer"></span>
+        <button class="modal-close" @click="closeGateHistory">✕</button>
+      </div>
+      <div class="loader" v-if="gateHistLoading && !gateHistData">
+        <div class="spinner"></div>
+        <p>正在从仓库读取停机位历史 …</p>
+      </div>
+      <div class="atis-error" v-else-if="gateHistError && !gateHistData">{{ gateHistError }}</div>
+      <table class="hist-table" v-else-if="gateHistData && gateHistData.rows.length">
+        <thead>
+          <tr>
+            <th>日期</th>
+            <th>航班</th>
+            <th>机号</th>
+            <th>机型</th>
+            <th>停机位</th>
+            <th>变更时间</th>
+            <th>告警</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(r, i) in gateHistData.rows" :key="i">
+            <td class="time">{{ r.date }}</td>
+            <td>{{ r.flight }}</td>
+            <td>{{ r.registration || '—' }}</td>
+            <td>{{ r.ac_type || '—' }}</td>
+            <td><span class="gate-chip">{{ r.gate }}</span></td>
+            <td class="time">{{ gateHistTime(r.observed_at) }}</td>
+            <td><span class="alert-mark" v-if="r.alerted">● 已告警</span><span v-else>—</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="empty-atis" v-else-if="gateHistData">所选月份内暂无停机位记录</div>
+      <div v-if="gateHistError && gateHistData" class="atis-error" style="margin-top:8px">{{ gateHistError }}</div>
+    </div>
+  </div>
   </template>
 
   <section class="atis" v-else>
@@ -427,11 +493,11 @@
         <div class="atis-error" v-else-if="atisBatchError && !atisBatch">{{ atisBatchError }}</div>
         <template v-else-if="atisBatch">
           <div class="atis-batch-meta">
-            <span>常用机场 {{ atisBatch.count }} 个 · 成功 {{ atisBatch.ok_count }} 个 · 缓存更新 {{ atisBatch.fetched_at }}</span>
+            <span>常用机场 {{ atisBatch.count }} 个 · 成功 {{ atisBatch.ok_count }} 个 · 缓存更新 {{ atisBatch.fetched_at }} · 每 10 分钟自动刷新</span>
             <span class="age-badge" v-if="batchAgeText" :class="batchAgeClass">{{ batchAgeText }}</span>
             <span v-if="atisBatchError" style="color:#fca5a5">{{ atisBatchError }}</span>
             <span class="spacer"></span>
-            <button @click="loadATISBatch(true)" :disabled="atisBatchLoading">{{ atisBatchLoading ? '刷新中…' : '刷新' }}</button>
+            <button @click="loadATISBatch(true, true)" :disabled="atisBatchLoading">{{ atisBatchLoading ? '刷新中…' : '刷新' }}</button>
           </div>
           <div class="atis-groups">
             <section class="atis-group" v-for="g in atisGroups" :key="g.key">
@@ -735,6 +801,14 @@ Vue.createApp({
     const historyError = Vue.ref('');
     let historyLoadedKey = '';
     let historyLoadedAt = 0;
+    const gateHistOpen = Vue.ref(false);
+    const gateHistMonths = Vue.ref(3);
+    const gateHistFlight = Vue.ref('');
+    const gateHistData = Vue.ref(null);
+    const gateHistLoading = Vue.ref(false);
+    const gateHistError = Vue.ref('');
+    let gateHistLoadedKey = '';
+    let gateHistLoadedAt = 0;
     const params = new URLSearchParams(location.search);
     if (params.get('page') === 'atis') page.value = 'atis';
     const initialCode = (params.get('code') || '').trim().toUpperCase();
@@ -988,11 +1062,13 @@ Vue.createApp({
     }
 
     const ATIS_BATCH_TTL = 5 * 60 * 1000;
+    const ATIS_BATCH_REFRESH_MS = 10 * 60 * 1000;
     let atisBatchLoadedAt = 0;
 
-    async function loadATISBatch(force = false) {
+    async function loadATISBatch(force = false, manual = false) {
       // 5 分钟内的缓存直接复用，切换页面回来不重新抓取
       if (!force && atisBatch.value && Date.now() - atisBatchLoadedAt < ATIS_BATCH_TTL) return;
+      const startedAt = Date.now();
       atisBatchLoading.value = true;
       atisBatchError.value = '';
       try {
@@ -1005,9 +1081,20 @@ Vue.createApp({
         if (!result.ok) throw new Error(result.error || '加载失败');
         atisBatch.value = result.data;
         atisBatchLoadedAt = Date.now();
+        if (manual) {
+          const at = result.data && result.data.fetched_at;
+          showToast(at ? `已从 GitHub 刷新 · 数据更新于 ${at}` : '已从 GitHub 刷新');
+        }
       } catch (e) {
-        atisBatchError.value = (e && e.message) || String(e);
+        const msg = (e && e.message) || String(e);
+        atisBatchError.value = msg;
+        if (manual) showToast('刷新失败：' + msg, 'error');
       } finally {
+        // 手动刷新至少让“刷新中…”可见，避免一闪而过
+        if (manual) {
+          const rest = 500 - (Date.now() - startedAt);
+          if (rest > 0) await new Promise(r => setTimeout(r, rest));
+        }
         atisBatchLoading.value = false;
       }
     }
@@ -1063,6 +1150,56 @@ Vue.createApp({
     }
 
     const backToBatch = () => { atisView.value = 'batch'; };
+
+    function gateHistTime(raw) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(raw || '');
+      if (!m) return raw || '—';
+      return `${m[2]}-${m[3]} ${m[4]}:${m[5]}`;
+    }
+
+    async function loadGateHistory(force = false) {
+      const key = `${gateHistMonths.value}/${gateHistFlight.value}`;
+      if (!force && gateHistLoadedKey === key && Date.now() - gateHistLoadedAt < ATIS_BATCH_TTL) return;
+      gateHistLoading.value = true;
+      gateHistError.value = '';
+      try {
+        const resp = await fetch(`http://ancapi.localhost/fid/history?months=${gateHistMonths.value}&flight=${encodeURIComponent(gateHistFlight.value)}&t=${Date.now()}`, {
+          cache: 'no-store',
+          signal: AbortSignal.timeout(30000),
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const result = await resp.json();
+        if (!result.ok) throw new Error(result.error || '加载失败');
+        gateHistData.value = result.data;
+        gateHistLoadedKey = key;
+        gateHistLoadedAt = Date.now();
+      } catch (e) {
+        gateHistError.value = (e && e.message) || String(e);
+      } finally {
+        gateHistLoading.value = false;
+      }
+    }
+
+    function openGateHistory(flight) {
+      if (flight) gateHistFlight.value = flight;
+      gateHistOpen.value = true;
+      loadGateHistory(true);
+    }
+    function closeGateHistory() { gateHistOpen.value = false; }
+
+    async function pollGateHistoryPending() {
+      try {
+        const resp = await fetch(`http://ancapi.localhost/gate/alerts/pending?t=${Date.now()}`, {
+          cache: 'no-store', signal: AbortSignal.timeout(8000),
+        });
+        if (!resp.ok) return;
+        const result = await resp.json();
+        if (result && result.ok && result.pending) {
+          page.value = 'fid';
+          openGateHistory(result.flight || '');
+        }
+      } catch (e) { }
+    }
 
     async function queryAtis() {
       atisView.value = 'single';
@@ -1124,6 +1261,7 @@ Vue.createApp({
     let refreshTimer = null;
     let tickTimer = null;
     let batchTimer = null;
+    let gatePollTimer = null;
     let lastStoredFetched = '';
 
     async function load() {
@@ -1169,19 +1307,20 @@ Vue.createApp({
       tickTimer = setInterval(tick, 1000);
       window.addEventListener('keydown', onKey);
       load();
-      if (page.value === 'atis' && atisView.value === 'batch') loadATISBatch();
+      loadATISBatch();
       Vue.watch(page, v => { if (v === 'atis' && atisView.value === 'batch') loadATISBatch(); });
       if (params.get('auto') === '1' && page.value === 'atis') queryAtis();
       refreshTimer = setInterval(load, REFRESH_MS);
-      batchTimer = setInterval(() => {
-        if (page.value === 'atis' && atisView.value === 'batch') loadATISBatch(true);
-      }, 5 * 60 * 1000);
+      // 后台常驻刷新：不论当前停留在哪个页面，每 10 分钟静默拉取一次 Gist 缓存
+      batchTimer = setInterval(() => loadATISBatch(true), ATIS_BATCH_REFRESH_MS);
+      gatePollTimer = setInterval(pollGateHistoryPending, 3000);
       setInterval(() => { if (countdown.value > 0) countdown.value--; }, 1000);
     });
     Vue.onUnmounted(() => {
       clearInterval(refreshTimer);
       clearInterval(tickTimer);
       clearInterval(batchTimer);
+      clearInterval(gatePollTimer);
       window.removeEventListener('keydown', onKey);
     });
 
@@ -1193,7 +1332,9 @@ Vue.createApp({
              atisView, atisBatch, atisBatchLoading, atisBatchError, atisGroups, loadATISBatch, backToBatch,
              batchName, batchEnglish, batchInfoCode, batchLatestTime, batchRunways, batchAgeText, batchAgeClass,
              highlightRunwaysFor, historyAirport, historyMonths, historyData, historyLoading, historyError,
-             historyAirports, historyTime, loadHistory, openHistory };
+             historyAirports, historyTime, loadHistory, openHistory,
+             gateHistOpen, gateHistMonths, gateHistFlight, gateHistData, gateHistLoading, gateHistError,
+             gateHistTime, loadGateHistory, openGateHistory, closeGateHistory };
   }
 }).mount('#app');
 </script>

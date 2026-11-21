@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   fetch:
@@ -36,6 +36,8 @@ jobs:
           FID_GIST_ID: ${{ secrets.FID_GIST_ID }}
           FID_GIST_TOKEN: ${{ secrets.FID_GIST_TOKEN }}
           FID_COOKIE: ${{ secrets.FID_COOKIE }}
+          HISTORY_TOKEN: ${{ github.token }}
+          HISTORY_REPO: ${{ github.repository }}
         run: python scripts/fetch_fid.py
 
       - name: Upload snapshot artifact

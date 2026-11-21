@@ -125,7 +125,14 @@ func fetchBatchATIS() (map[string]any, error) {
 
 func fetchBatchATISOnce() (map[string]any, error) {
 	url := fmt.Sprintf("%satis_all.json?t=%d", gistRawBase, time.Now().UnixNano())
-	resp, err := httpClient.Get(url)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("读取缓存失败：%v", err)
+	}
+	// 手动刷新时必须跳过 CDN 缓存，取 GitHub 上的最新版本
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("读取缓存失败：%v", err)
 	}

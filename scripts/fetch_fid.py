@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """抓取 CSN FID 航班数据并发布到 GitHub Gist。"""
 
+import base64
 import csv
 import datetime as dt
 import io
@@ -9,6 +10,7 @@ import os
 import sys
 import time
 import urllib.parse
+import urllib.request
 from pathlib import Path
 
 import requests
@@ -19,6 +21,13 @@ FID_CODE = "CSN"
 API_ROOT = "https://api.github.com"
 OUT_DIR = Path("out")
 MAX_RAW_BYTES = 8 * 1024 * 1024
+USER_AGENT = "anc-fid-history/1.0"
+
+HISTORY_DIR = "fid-history"
+HISTORY_FIELDS = [
+    "date", "flight", "registration", "ac_type", "gate",
+    "sta", "eta", "ata", "std", "etd", "atd", "observed_at",
+]
 
 
 def utc_now() -> str:
@@ -163,6 +172,135 @@ def raw_file_url(gist: dict, filename: str) -> str:
     return f"https://gist.githubusercontent.com/{owner}/{gist_id}/raw/{filename}"
 
 
+def gh_api(method: str, url: str, token: str, payload=None):
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": USER_AGENT,
+    }
+    data = None
+    if payload is not None:
+        data = json.dumps(payload).encode()
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        body = resp.read()
+        return json.loads(body) if body else {}
+
+
+def read_repo_file(repo: str, path: str, token: str) -> str:
+    """读取仓库文件；文件不存在返回空字符串。"""
+    try:
+        data = gh_api("GET", f"{API_ROOT}/repos/{repo}/contents/{path}?ref=main", token)
+    except Exception:
+        return ""
+    try:
+        return base64.b64decode(data.get("content") or "").decode("utf-8")
+    except Exception:
+        return ""
+
+
+def commit_repo_files(repo: str, token: str, files: dict[str, str], message: str) -> None:
+    head = gh_api("GET", f"{API_ROOT}/repos/{repo}/git/ref/heads/main", token)
+    parent = head["object"]["sha"]
+    base_tree = gh_api("GET", f"{API_ROOT}/repos/{repo}/git/commits/{parent}", token)["tree"]["sha"]
+    entries = []
+    for path, content in files.items():
+        blob = gh_api("POST", f"{API_ROOT}/repos/{repo}/git/blobs", token,
+                      {"content": content, "encoding": "utf-8"})
+        entries.append({"path": path, "mode": "100644", "type": "blob", "sha": blob["sha"]})
+    tree = gh_api("POST", f"{API_ROOT}/repos/{repo}/git/trees", token,
+                  {"base_tree": base_tree, "tree": entries})
+    commit = gh_api("POST", f"{API_ROOT}/repos/{repo}/git/commits", token,
+                    {"message": message, "tree": tree["sha"], "parents": [parent]})
+    gh_api("PATCH", f"{API_ROOT}/repos/{repo}/git/refs/heads/main", token, {"sha": commit["sha"]})
+
+
+def last_gates_by_flight(csv_text: str) -> dict[str, str]:
+    """按 (航班号|日期) 取分片里最后一条机位记录。"""
+    last: dict[str, str] = {}
+    if not csv_text.strip():
+        return last
+    for row in csv.DictReader(io.StringIO(csv_text)):
+        flight = (row.get("flight") or "").strip()
+        date = (row.get("date") or "").strip()
+        gate = (row.get("gate") or "").strip()
+        if flight and date and gate:
+            last[f"{flight}|{date}"] = gate
+    return last
+
+
+def new_gate_rows(flights: list[dict], known: dict[str, str], observed_at: str) -> list[dict]:
+    """只有停机位首次出现或发生变化时才产生新行；清空机位不记录。"""
+    rows: list[dict] = []
+    seen: set[str] = set()
+    for flight in flights:
+        number = str(flight.get("FlightNumber") or "").strip()
+        date = str(flight.get("LSODate") or flight.get("DepartureDate") or "").strip()
+        gate = str(flight.get("GateNumber") or "").strip()
+        if not number or not date or not gate:
+            continue
+        key = f"{number}|{date}"
+        if key in seen:
+            continue
+        seen.add(key)
+        if known.get(key) == gate:
+            continue
+        known[key] = gate
+        rows.append({
+            "date": date,
+            "flight": number,
+            "registration": str(flight.get("RegistrationNumber") or "").strip(),
+            "ac_type": str(flight.get("ACType") or "").strip(),
+            "gate": gate,
+            "sta": str(flight.get("STA") or "").strip(),
+            "eta": str(flight.get("ETA") or "").strip(),
+            "ata": str(flight.get("ATA") or "").strip(),
+            "std": str(flight.get("STD") or "").strip(),
+            "etd": str(flight.get("ETD") or "").strip(),
+            "atd": str(flight.get("ATD") or "").strip(),
+            "observed_at": observed_at,
+        })
+    return rows
+
+
+def append_gate_history(flights: list[dict], lines: list[str]) -> None:
+    token = os.environ.get("HISTORY_TOKEN", "").strip()
+    repo = os.environ.get("HISTORY_REPO", "").strip()
+    if not token or not repo:
+        lines.append("- 停机位历史：跳过（缺少 HISTORY_TOKEN/HISTORY_REPO）")
+        return
+
+    month = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m")
+    path = f"{HISTORY_DIR}/{month}.csv"
+    for attempt in range(1, 4):
+        try:
+            text = read_repo_file(repo, path, token)
+            rows = new_gate_rows(flights, last_gates_by_flight(text), utc_now())
+            if not rows:
+                lines.append("- 停机位历史：无变化")
+                return
+            buf = io.StringIO()
+            writer = csv.DictWriter(
+                buf, fieldnames=HISTORY_FIELDS, extrasaction="ignore", lineterminator="\n")
+            if not text.strip():
+                writer.writeheader()
+            for row in rows:
+                writer.writerow(row)
+            commit_repo_files(repo, token, {path: (text if text.strip() else "") + buf.getvalue()},
+                              f"FID gate history: +{len(rows)} records ({utc_now()})")
+            lines.append(f"- 停机位历史：新增 {len(rows)} 条（{path}）")
+            return
+        except Exception as exc:
+            if attempt == 3:
+                print(f"::error::Gate history commit failed: {exc}")
+                lines.append(f"- 停机位历史写入失败：`{exc}`")
+                return
+            print(f"[history] attempt {attempt}/3 failed: {exc}", flush=True)
+            time.sleep(3 * attempt)
+
+
 def write_summary(lines: list[str]) -> None:
     text = "\n".join(lines) + "\n"
     path = os.environ.get("GITHUB_STEP_SUMMARY")
@@ -182,6 +320,7 @@ def main() -> int:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     status = {"ok": False, "checked_at": utc_now(), "source_url": url}
     files: dict[str, str] = {}
+    flights: list[dict] = []
     exit_code = 0
     session = requests.Session()
     headers = build_headers()
@@ -239,6 +378,9 @@ def main() -> int:
             summary.append(f"- 通告：{status['advisory'][:200]}")
     else:
         summary.append(f"- 错误：`{status['error']}`")
+
+    if status["ok"]:
+        append_gate_history(flights, summary)
 
     if not token:
         print("::warning::FID_GIST_TOKEN 未配置，仅生成本地快照（见 artifact）。")

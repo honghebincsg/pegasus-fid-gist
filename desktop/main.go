@@ -22,6 +22,7 @@ func main() {
 	}
 	mygo.SetFrontend(web)
 	openStore()
+	startAlertUI()
 	if err := mygo.Protocol.Handle("ancapi", newAncAPIHandler()); err != nil {
 		log.Printf("register ancapi protocol: %v", err)
 	}

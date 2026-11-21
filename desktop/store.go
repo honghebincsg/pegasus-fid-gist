@@ -115,6 +115,9 @@ func initSchema(db *sql.DB) error {
 	if err := ensureFlightsTable(db); err != nil {
 		return err
 	}
+	if err := initGateSchema(db); err != nil {
+		return err
+	}
 	for _, statement := range []string{
 		`CREATE INDEX IF NOT EXISTS idx_fid_flights_gate ON fid_flights(gate)`,
 		`CREATE INDEX IF NOT EXISTS idx_fid_flights_flight ON fid_flights(flight_number)`,
@@ -247,21 +250,39 @@ func saveFIDSnapshot(data map[string]any) error {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec(
+	result, err := tx.Exec(
 		`INSERT OR IGNORE INTO fid_snapshots (fetched_at, flight_count, created_at) VALUES (?, ?, ?)`,
-		fetchedAt, len(flights), utcNow()); err != nil {
+		fetchedAt, len(flights), utcNow())
+	if err != nil {
 		return err
 	}
+	inserted, _ := result.RowsAffected()
 	var snapshotID int64
 	if err := tx.QueryRow(`SELECT id FROM fid_snapshots WHERE fetched_at = ?`, fetchedAt).Scan(&snapshotID); err != nil {
 		return err
 	}
+	changes := make([]gateAlert, 0, 2)
 	for index, item := range flights {
 		flight, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
 		key, recno := flightKey(flight, index)
+		if inserted > 0 {
+			var oldGate, lastSeen string
+			queryErr := tx.QueryRow(
+				`SELECT COALESCE(gate, ''), COALESCE(last_seen_at, '') FROM fid_flights WHERE flight_key = ?`,
+				key).Scan(&oldGate, &lastSeen)
+			newGate := strings.TrimSpace(valueString(flight["GateNumber"]))
+			if queryErr == nil && newGate != "" {
+				oldGate = strings.TrimSpace(oldGate)
+				if oldGate != "" && oldGate != newGate && lastObservationRecent(lastSeen) {
+					if alert, err := recordGateAlert(tx, key, flight, oldGate, newGate, fetchedAt); err == nil {
+						changes = append(changes, alert)
+					}
+				}
+			}
+		}
 		if _, err := tx.Exec(`
 			INSERT INTO fid_flights (
 				flight_key, snapshot_id, flight_number, lsodate, recno, registration, ac_type, gate,
@@ -296,7 +317,11 @@ func saveFIDSnapshot(data map[string]any) error {
 			return err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	enqueueGateAlerts(changes)
+	return nil
 }
 
 func saveATIS(data map[string]any) error {
@@ -367,6 +392,8 @@ func newAncAPIHandler() http.Handler {
 	mux.HandleFunc("/atis/batch", handleATISBatch)
 	mux.HandleFunc("/atis/history", handleATISHistory)
 	mux.HandleFunc("/store/fid", handleStoreFID)
+	mux.HandleFunc("/fid/history", handleFIDHistory)
+	mux.HandleFunc("/gate/alerts/pending", handleGateHistoryPending)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		io.WriteString(w, `{"ok":true}`)
