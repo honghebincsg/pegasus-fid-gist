@@ -107,8 +107,24 @@ func handleATISBatch(w http.ResponseWriter, r *http.Request) {
 }
 
 // fetchBatchATIS 从 Gist 读取批量缓存，并补全机场名称与跑道信息。
+// Gist CDN 偶发 404/TLS 握手超时，失败时短暂重试。
 func fetchBatchATIS() (map[string]any, error) {
-	url := fmt.Sprintf("%satis_all.json?t=%d", gistRawBase, time.Now().Unix())
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt) * 1500 * time.Millisecond)
+		}
+		data, err := fetchBatchATISOnce()
+		if err == nil {
+			return data, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+func fetchBatchATISOnce() (map[string]any, error) {
+	url := fmt.Sprintf("%satis_all.json?t=%d", gistRawBase, time.Now().UnixNano())
 	resp, err := httpClient.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("读取缓存失败：%v", err)
