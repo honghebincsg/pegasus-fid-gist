@@ -433,6 +433,7 @@
         </select>
         <input v-model="gateHistFlight" placeholder="航班号 / 机号" @keyup.enter="loadGateHistory(true)">
         <button @click="loadGateHistory(true)" :disabled="gateHistLoading">{{ gateHistLoading ? '加载中…' : '刷新' }}</button>
+        <button @click="exportGateHistory" :disabled="!gateHistData || !gateHistData.rows.length">导出 CSV</button>
         <span class="hist-count" v-if="gateHistData">共 {{ gateHistData.count }} 条</span>
         <span class="spacer"></span>
         <button class="modal-close" @click="closeGateHistory">✕</button>
@@ -582,6 +583,7 @@
           </select>
           <span class="hist-count" v-if="historyData">共 {{ historyData.count }} 条 · 月份 {{ (historyData.months || []).join('、') || '—' }}</span>
           <span class="spacer"></span>
+          <button @click="exportATISHistory" :disabled="!historyData || !historyData.rows.length">导出 CSV</button>
           <button @click="loadHistory(true)" :disabled="historyLoading">{{ historyLoading ? '加载中…' : '刷新' }}</button>
         </div>
         <div class="loader" v-if="historyLoading && !historyData">
@@ -1118,6 +1120,41 @@ Vue.createApp({
       return `${m[2]}-${m[3]} ${m[4]}:${m[5]}Z`;
     }
 
+    function csvCell(value) {
+      const text = value == null ? '' : String(value);
+      return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+    }
+    async function exportCSV(filename, header, rows) {
+      const lines = [header.map(csvCell).join(','), ...rows.map(r => r.map(csvCell).join(','))];
+      const csv = '\uFEFF' + lines.join('\r\n');
+      try {
+        const resp = await fetch('http://ancapi.localhost/export/csv', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename, csv }),
+          signal: AbortSignal.timeout(15000),
+        });
+        const result = await resp.json();
+        if (!result.ok) throw new Error(result.error || '导出失败');
+        toast(`已导出 ${result.path}`);
+      } catch (e) {
+        toast(`导出失败：${(e && e.message) || e}`);
+      }
+    }
+    function todayStamp() {
+      const d = new Date();
+      return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    }
+    function exportATISHistory() {
+      if (!historyData.value || !historyData.value.rows.length) return;
+      const rows = historyData.value.rows.map(r => [
+        historyAirport.value, historyTime(r.arrival_at), historyTime(r.departure_at),
+        r.info || '', (r.landing || []).join('/'), (r.departure || []).join('/'),
+      ]);
+      exportCSV(`atis-history-${historyAirport.value}-${todayStamp()}.csv`,
+        ['机场', '到达报文', '起飞报文', 'INFO', '落地跑道', '起飞跑道'], rows);
+    }
+
     async function loadHistory(force = false) {
       const code = historyAirport.value;
       const key = `${code}/${historyMonths.value}`;
@@ -1186,6 +1223,17 @@ Vue.createApp({
       loadGateHistory(true);
     }
     function closeGateHistory() { gateHistOpen.value = false; }
+
+    function exportGateHistory() {
+      if (!gateHistData.value || !gateHistData.value.rows.length) return;
+      const rows = gateHistData.value.rows.map(r => [
+        r.date, r.flight, r.registration || '', r.ac_type || '', r.gate,
+        r.sta || '', r.eta || '', r.ata || '', r.std || '', r.etd || '', r.atd || '',
+        gateHistTime(r.observed_at), r.alerted ? '是' : '否',
+      ]);
+      exportCSV(`gate-history-${todayStamp()}.csv`,
+        ['日期', '航班', '机号', '机型', '停机位', 'STA', 'ETA', 'ATA', 'STD', 'ETD', 'ATD', '变更时间', '告警'], rows);
+    }
 
     async function pollGateHistoryPending() {
       try {
@@ -1332,9 +1380,9 @@ Vue.createApp({
              atisView, atisBatch, atisBatchLoading, atisBatchError, atisGroups, loadATISBatch, backToBatch,
              batchName, batchEnglish, batchInfoCode, batchLatestTime, batchRunways, batchAgeText, batchAgeClass,
              highlightRunwaysFor, historyAirport, historyMonths, historyData, historyLoading, historyError,
-             historyAirports, historyTime, loadHistory, openHistory,
+             historyAirports, historyTime, loadHistory, openHistory, exportATISHistory,
              gateHistOpen, gateHistMonths, gateHistFlight, gateHistData, gateHistLoading, gateHistError,
-             gateHistTime, loadGateHistory, openGateHistory, closeGateHistory };
+             gateHistTime, loadGateHistory, openGateHistory, closeGateHistory, exportGateHistory };
   }
 }).mount('#app');
 </script>
