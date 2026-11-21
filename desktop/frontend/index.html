@@ -276,9 +276,12 @@
     padding: 10px 20px; border-radius: 8px;
     background: rgba(34,197,94,.95); color: #fff;
     font-size: 14px; transition: transform .3s;
+    max-width: 86vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .toast.show { transform: translateX(-50%) translateY(0); }
   .toast.error { background: rgba(239,68,68,.95); }
+  .toast.clickable { cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+  .toast.clickable:hover { background: rgba(22,163,74,.98); }
   .hist-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
   .hist-toolbar select {
     padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line);
@@ -720,7 +723,7 @@
     </div>
   </div>
 
-  <div class="toast" :class="{ show: toast.show, error: toast.type === 'error' }" v-if="toast.show">{{ toast.msg }}</div>
+  <div class="toast" :class="{ show: toast.show, error: toast.type === 'error', clickable: !!toast.path }" @click="revealExport" v-if="toast.show">{{ toast.msg }}</div>
 </div>
 
 <script>
@@ -1045,13 +1048,25 @@ Vue.createApp({
     const closeDetail = () => { selected.value = null; };
     const onKey = e => { if (e.key === 'Escape') closeDetail(); };
 
-    const toast = Vue.ref({ show: false, msg: '', type: 'success' });
+    const toast = Vue.ref({ show: false, msg: '', type: 'success', path: '' });
     let toastTimer = null;
-    const showToast = (msg, type = 'success') => {
-      toast.value = { show: true, msg, type };
+    const showToast = (msg, type = 'success', duration = 2000, path = '') => {
+      toast.value = { show: true, msg, type, path };
       clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => toast.value.show = false, 2000);
+      toastTimer = setTimeout(() => toast.value.show = false, duration);
     };
+    async function revealExport() {
+      const path = toast.value.path;
+      if (!path) return;
+      toast.value.show = false;
+      try {
+        await fetch('http://ancapi.localhost/export/reveal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path }),
+        });
+      } catch (e) { /* ignore */ }
+    }
 
     async function copyATIS(text) {
       if (!text) return;
@@ -1127,6 +1142,7 @@ Vue.createApp({
     async function exportCSV(filename, header, rows) {
       const lines = [header.map(csvCell).join(','), ...rows.map(r => r.map(csvCell).join(','))];
       const csv = '\uFEFF' + lines.join('\r\n');
+      showToast('正在导出…', 'success', 8000);
       try {
         const resp = await fetch('http://ancapi.localhost/export/csv', {
           method: 'POST',
@@ -1136,9 +1152,9 @@ Vue.createApp({
         });
         const result = await resp.json();
         if (!result.ok) throw new Error(result.error || '导出失败');
-        toast(`已导出 ${result.path}`);
+        showToast(`已导出 ${filename}（点击打开所在文件夹）`, 'success', 6000, result.path);
       } catch (e) {
-        toast(`导出失败：${(e && e.message) || e}`);
+        showToast(`导出失败：${(e && e.message) || e}`, 'error', 4000);
       }
     }
     function todayStamp() {
@@ -1376,7 +1392,7 @@ Vue.createApp({
              countdown, clock, tzName, lastError, lastLoad, fidLoading, text, yes, statusOf, timeTag, rowClass, remarkTitle,
              openDetail, closeDetail, detail, page, atisCode, atisLoading, atisError, atisData, combinedText, fetchModeLabel,
              airportName, airportEnglish, atisInfoCode, landingRunways, departureRunways,
-             latestATISTime, relativeTime, ageClass, highlightRunways, copyATIS, queryAtis, toast,
+             latestATISTime, relativeTime, ageClass, highlightRunways, copyATIS, queryAtis, toast, revealExport,
              atisView, atisBatch, atisBatchLoading, atisBatchError, atisGroups, loadATISBatch, backToBatch,
              batchName, batchEnglish, batchInfoCode, batchLatestTime, batchRunways, batchAgeText, batchAgeClass,
              highlightRunwaysFor, historyAirport, historyMonths, historyData, historyLoading, historyError,

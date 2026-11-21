@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -68,4 +69,45 @@ func handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "path": path})
+}
+
+type revealRequest struct {
+	Path string `json:"path"`
+}
+
+// handleRevealFile 在资源管理器中定位刚导出的文件，只允许 Downloads 目录内的路径。
+func handleRevealFile(w http.ResponseWriter, r *http.Request) {
+	allowCORS(w)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"ok": false, "error": "method not allowed"})
+		return
+	}
+	var req revealRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid request"})
+		return
+	}
+	target := filepath.Clean(strings.TrimSpace(req.Path))
+	dir, err := downloadsDir()
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	if !filepath.IsAbs(target) || !strings.EqualFold(filepath.Dir(target), filepath.Clean(dir)) {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "path not allowed"})
+		return
+	}
+	if _, err := os.Stat(target); err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "file not found"})
+		return
+	}
+	if err := exec.Command("explorer.exe", "/select,"+target).Start(); err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
