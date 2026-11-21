@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CSN FLIGHT INFO & ATIS</title>
+<script src="vendor/vue.global.prod.js"></script>
+<style>
+  :root {
+    --bg: #070d18;
+    --panel: rgba(17, 27, 45, 0.92);
+    --line: rgba(120, 160, 210, 0.18);
+    --text: #e9f0fa;
+    --muted: #8fa3bf;
+    --green: #22c55e;
+    --red: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1100px 500px at 15% -10%, rgba(34, 90, 160, 0.28), transparent 60%),
+      radial-gradient(900px 420px at 95% 0%, rgba(20, 120, 90, 0.16), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+    overflow: hidden;
+  }
+  #app { display: flex; height: 100vh; }
+  .sidebar {
+    flex: 0 0 170px; display: flex; flex-direction: column; gap: 6px;
+    padding: 16px 12px; background: rgba(9, 16, 29, .92); border-right: 1px solid var(--line);
+  }
+  .side-brand { padding: 8px 10px 16px; font-size: 12px; color: var(--muted); letter-spacing: 1px; }
+  .side-brand b { display: block; color: #6ee7b7; font-size: 22px; letter-spacing: 2px; }
+  .nav-item {
+    padding: 10px 12px; border-radius: 8px; color: var(--muted); font-size: 14px;
+    cursor: pointer; user-select: none;
+  }
+  .nav-item:hover { background: rgba(148,163,184,.1); color: var(--text); }
+  .nav-item.active { background: rgba(110,231,183,.14); color: #6ee7b7; font-weight: 600; }
+  .content { flex: 1; min-width: 0; height: 100vh; display: flex; flex-direction: column; padding: 14px 18px 10px; }
+
+  .atis { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
+  .atis-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+  .atis-head h2 { margin: 0; font-size: 22px; font-weight: 600; }
+  .atis-form { display: flex; gap: 8px; margin-left: auto; }
+  .atis-form input {
+    width: 122px; padding: 9px 12px; border-radius: 8px; outline: none;
+    border: 1px solid rgba(125,211,252,.35); background: rgba(9,16,29,.8);
+    color: var(--text); font-size: 16px; font-family: Consolas, monospace;
+    letter-spacing: 2px; text-transform: uppercase;
+  }
+  .atis-form input:focus { border-color: #6ee7b7; }
+  .atis-form button {
+    padding: 9px 18px; border: 0; border-radius: 8px; background: #0d9488;
+    color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  .atis-form button:hover { background: #0f766e; }
+  .atis-form button:disabled { opacity: .5; cursor: default; }
+  .atis-hint { width: 100%; font-size: 12px; color: var(--muted); }
+  .atis-body {
+    flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 14px;
+    padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel);
+  }
+  .loader { flex: 1; display: grid; place-items: center; gap: 14px; color: var(--muted); font-size: 14px; }
+  .spinner {
+    width: 44px; height: 44px; border-radius: 50%;
+    border: 3px solid rgba(110,231,183,.18); border-top-color: #6ee7b7;
+    animation: spin .85s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .atis-error { padding: 12px; border-radius: 8px; background: rgba(239,68,68,.12); color: #fca5a5; font-size: 14px; }
+  .atis-result { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .atis-card { min-width: 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: rgba(13,24,42,.6); }
+  .atis-card h3 { margin: 0 0 10px; font-size: 14px; color: #6ee7b7; letter-spacing: .5px; }
+  .atis-card h3 .time { margin-left: 10px; font-size: 12px; font-weight: 400; color: var(--muted); }
+  .atis-card p {
+    margin: 0; font-family: Consolas, "Courier New", monospace; font-size: 15px;
+    line-height: 1.75; color: #dbe7f5; overflow-wrap: anywhere;
+  }
+  .atis-meta { font-size: 12px; color: var(--muted); }
+  .empty-atis { flex: 1; display: grid; place-items: center; color: var(--muted); font-size: 15px; }
+
+  header { display: flex; align-items: center; gap: 18px; }
+  .brand {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 14px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--panel);
+  }
+  .brand .code { font-size: 26px; font-weight: 700; color: #6ee7b7; letter-spacing: 1px; }
+  .brand .airport { font-size: 13px; color: var(--muted); line-height: 1.3; }
+  .brand .airport b { display: block; color: var(--text); font-size: 15px; letter-spacing: 2px; }
+  h1 { flex: 1; margin: 0; font-size: clamp(17px, 1.8vw, 25px); font-weight: 600; letter-spacing: 0.5px; }
+  .clock { text-align: right; font-variant-numeric: tabular-nums; }
+  .clock .local { font-size: clamp(20px, 2.2vw, 30px); font-weight: 700; letter-spacing: 1px; }
+  .clock .zone { font-size: 12px; color: var(--muted); }
+
+  .meta {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px;
+    margin: 10px 0 8px; padding: 8px 12px;
+    border: 1px solid var(--line); border-radius: 10px; background: var(--panel);
+    font-size: 13px; color: var(--muted);
+  }
+  .meta b { color: var(--text); font-weight: 600; margin-left: 6px; font-variant-numeric: tabular-nums; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px rgba(34,197,94,.8); }
+  .dot.bad { background: var(--red); box-shadow: 0 0 10px rgba(239,68,68,.8); }
+  .spacer { flex: 1; }
+
+  .advisory {
+    margin-bottom: 10px; padding: 8px 12px; border-radius: 8px;
+    background: #7f1d1d; color: #fff; font-size: 14px; white-space: nowrap; overflow: hidden;
+  }
+  .advisory span { display: inline-block; padding-left: 100%; animation: scroll 22s linear infinite; }
+  @keyframes scroll { to { transform: translateX(-100%); } }
+
+  main { flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 12px; overflow: auto; background: var(--panel); }
+  table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: clamp(12px, 1.0vw, 14px); }
+  thead th {
+    position: sticky; top: 0; z-index: 1;
+    padding: 7px 8px; text-align: left; font-weight: 600; letter-spacing: 0.5px;
+    background: #0d3b2b; color: #d1fae5; border-bottom: 1px solid var(--line);
+    font-size: 12px; text-transform: uppercase; white-space: nowrap;
+  }
+  tbody td { padding: 1px 8px; line-height: 1.45; border-bottom: 1px solid rgba(120,160,210,.1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr { transition: background .3s; }
+  td.flt { font-weight: 700; font-variant-numeric: tabular-nums; }
+  td.ac { color: #c7d8ee; font-variant-numeric: tabular-nums; }
+  td.gate { font-size: 1.15em; font-weight: 700; color: #fde68a; font-variant-numeric: tabular-nums; }
+  td.time { font-variant-numeric: tabular-nums; }
+  .tag { display: inline-block; padding: 2px 7px; border-radius: 5px; font-weight: 600; font-size: .92em; }
+  .tag.ata { background: #7f1d1d; color: #fff; }
+  .tag.eta { background: #166534; color: #dcfce7; }
+  .tag.sta { background: rgba(148,163,184,.18); color: #cbd5e1; }
+  .sub { margin-left: 6px; color: var(--muted); font-size: .8em; }
+  .from.intl { background: #9a3412; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .85em; font-weight: 600; }
+  .badge.plan { background: rgba(148,163,184,.18); color: #cbd5e1; }
+  .badge.eta { background: rgba(34,197,94,.2); color: #86efac; }
+  .badge.arrived { background: rgba(239,68,68,.22); color: #fca5a5; }
+  .badge.aog { background: #dc2626; color: #fff; }
+  td.remarks { color: #d5e2f2; }
+
+  tr.row-eta { background: rgba(34,197,94,.16); }
+  tr.row-arrived { background: rgba(153,51,51,.38); }
+  tr.row-aog { background: rgba(220,38,38,.42); }
+  tr.row-longturn td.remarks { background: rgba(250,204,21,.85); color: #1f2937; font-weight: 600; }
+
+  .empty { display: grid; place-items: center; height: 100%; color: var(--muted); font-size: 16px; }
+  footer { display: flex; gap: 18px; align-items: center; padding: 10px 4px 0; font-size: 12px; color: var(--muted); }
+  footer .err { color: #fca5a5; }
+
+  .flt-btn {
+    background: none; border: 0; padding: 0; color: #7dd3fc; font: inherit; font-weight: 700;
+    cursor: pointer; text-decoration: underline dotted rgba(125,211,252,.5); text-underline-offset: 3px;
+  }
+  .flt-btn:hover { color: #bae6fd; }
+  .modal-mask {
+    position: fixed; inset: 0; background: rgba(2, 6, 16, .72); backdrop-filter: blur(3px);
+    display: grid; place-items: center; z-index: 50; padding: 22px;
+  }
+  .modal {
+    width: min(1000px, 95vw); max-height: 87vh; overflow: auto;
+    background: #0f1a2b; border: 1px solid rgba(125,211,252,.25); border-radius: 14px;
+    box-shadow: 0 24px 80px rgba(0,0,0,.55); padding: 20px 22px 26px;
+  }
+  .modal-head { display: flex; align-items: flex-start; gap: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+  .modal-head .flt { font-size: 26px; font-weight: 800; color: #7dd3fc; letter-spacing: .5px; }
+  .modal-head .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .modal-head .badges { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .modal-close {
+    background: rgba(148,163,184,.15); color: var(--text); border: 0; border-radius: 8px;
+    width: 32px; height: 32px; font-size: 18px; line-height: 1; cursor: pointer;
+  }
+  .modal-close:hover { background: rgba(148,163,184,.3); }
+  .detail-group { margin-top: 16px; }
+  .detail-group h3 { margin: 0 0 8px; font-size: 11px; letter-spacing: 1.2px; color: #6ee7b7; text-transform: uppercase; }
+  .detail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 9px 18px; }
+  .detail-item { min-width: 0; }
+  .detail-item .k { display: block; font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+  .detail-item .v { font-size: 14px; color: var(--text); word-break: break-word; }
+  .detail-item.wide { grid-column: 1 / -1; }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside class="sidebar">
+    <div class="side-brand"><b>CSN</b>ANC · ATIS</div>
+    <div class="nav-item" :class="{ active: page === 'fid' }" @click="page = 'fid'">ANC停机位</div>
+    <div class="nav-item" :class="{ active: page === 'atis' }" @click="page = 'atis'">ATIS 查询</div>
+  </aside>
+  <div class="content">
+  <template v-if="page === 'fid'">
+  <header>
+    <div class="brand">
+      <div class="code">CSN</div>
+      <div class="airport"><b>ANC</b>Anchorage</div>
+    </div>
+    <h1>China Southern Airlines · Flight Info &amp; ATIS</h1>
+    <div class="clock">
+      <div class="local">{{ clock }}</div>
+      <div class="zone">本地时间 · {{ tzName }}</div>
+    </div>
+  </header>
+
+  <div class="meta">
+    <span><span class="dot" :class="{ bad: !healthy }"></span></span>
+    <span>ANC 时间<b>{{ snap.as_of_local || '—' }}</b></span>
+    <span>Zulu<b>{{ zulu ? zulu + 'Z' : '—' }}</b></span>
+    <span>抓取于<b>{{ fetchedLocal || '—' }}</b></span>
+    <span>航班<b>{{ flightCount }}</b></span>
+    <span>下次刷新<b>{{ countdown }}s</b></span>
+    <span class="spacer"></span>
+    <span v-if="!healthy" class="err">数据未更新，正在重试</span>
+  </div>
+
+  <div class="advisory" v-if="advisory">
+    <span>{{ advisory }}</span>
+  </div>
+
+  <main>
+    <div class="empty" v-if="!flights.length">暂无航班数据</div>
+    <table v-else>
+      <colgroup>
+        <col style="width:9%">
+        <col style="width:9%">
+        <col style="width:7%">
+        <col style="width:16%">
+        <col style="width:6%">
+        <col style="width:8%">
+        <col style="width:8%">
+        <col style="width:9%">
+        <col style="width:28%">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>Flt #</th>
+          <th>A/C #</th>
+          <th>Type</th>
+          <th>Time</th>
+          <th>Gate</th>
+          <th>From</th>
+          <th>To</th>
+          <th>Status</th>
+          <th>Remarks</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="f in flights" :key="f.recno" :class="rowClass(f)">
+          <td class="flt"><button class="flt-btn" @click="openDetail(f)">{{ f.FlightNumber }}</button></td>
+          <td class="ac">{{ text(f.RegistrationNumber) }}</td>
+          <td class="ac">{{ text(f.ACType) }}</td>
+          <td class="time">
+            <span class="tag" :class="timeTag(f).cls">{{ timeTag(f).label }}</span>
+            <span class="sub" v-if="timeTag(f).extra">{{ timeTag(f).extra }}</span>
+          </td>
+          <td class="gate">{{ text(f.GateNumber) }}</td>
+          <td class="from" :class="{ intl: yes(f.International) }">{{ text(f.FromStation) }}</td>
+          <td>{{ text(f.ToStation) }}</td>
+          <td><span class="badge" :class="statusOf(f).cls">{{ statusOf(f).text }}</span></td>
+          <td class="remarks" :title="remarkTitle(f)">{{ text(f.Comments_MX) }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </main>
+
+  <footer>
+    <span>数据源：Pegasus FID · 每 60 秒自动刷新</span>
+    <span class="spacer"></span>
+    <span v-if="lastError" class="err">错误：{{ lastError }}</span>
+    <span v-else>最后刷新 {{ lastLoad }}</span>
+  </footer>
+  </template>
+
+  <section class="atis" v-else>
+    <div class="atis-head">
+      <h2>Airport ATIS</h2>
+      <div class="atis-form">
+        <input v-model="atisCode" maxlength="4" placeholder="ZGGG" :disabled="atisLoading"
+               @input="atisCode = atisCode.toUpperCase()" @keyup.enter="queryAtis">
+        <button @click="queryAtis" :disabled="atisLoading">查询</button>
+      </div>
+      <div class="atis-hint">美国机场直连 atis.info（约 1–4 秒），其他机场经 GitHub 抓取（约 10 秒）</div>
+    </div>
+    <div class="atis-body">
+      <div class="loader" v-if="atisLoading">
+        <div class="spinner"></div>
+        <p>正在抓取 {{ atisCode || 'ATIS' }} …</p>
+      </div>
+      <div class="atis-error" v-else-if="atisError">{{ atisError }}</div>
+      <div class="atis-result" v-else-if="atisData">
+        <div class="atis-card" v-if="combinedText">
+          <h3>Combined ATIS <span class="time" v-if="atisData.combined.updated_at">{{ atisData.combined.updated_at }}</span><span class="time" v-if="atisData.combined.code">INFO {{ atisData.combined.code }}</span></h3>
+          <p>{{ combinedText }}</p>
+        </div>
+        <template v-else>
+          <div class="atis-card">
+            <h3>Arrival ATIS <span class="time" v-if="atisData.arrival.updated_at">{{ atisData.arrival.updated_at }} UTC</span></h3>
+            <p>{{ atisData.arrival.text || '暂无到达 ATIS' }}</p>
+          </div>
+          <div class="atis-card">
+            <h3>Departure ATIS <span class="time" v-if="atisData.departure.updated_at">{{ atisData.departure.updated_at }} UTC</span></h3>
+            <p>{{ atisData.departure.text || '暂无起飞 ATIS' }}</p>
+          </div>
+        </template>
+        <div class="atis-meta">机场 {{ atisData.airport }} · 数据源 {{ atisData.source || 'atis.guru' }} · 抓取时间 {{ atisData.fetched_at }}</div>
+      </div>
+      <div class="empty-atis" v-else>输入机场代码开始查询</div>
+    </div>
+  </section>
+  </div>
+
+  <div class="modal-mask" v-if="selected" @click.self="closeDetail">
+    <div class="modal">
+      <div class="modal-head">
+        <div>
+          <div class="flt">{{ selected.FlightNumber }}</div>
+          <div class="sub">{{ [selected.RegistrationNumber, selected.ACType, selected.GateNumber ? '机位 ' + selected.GateNumber : '', selected.FromStation && selected.ToStation ? selected.FromStation + ' → ' + selected.ToStation : ''].filter(Boolean).join(' · ') }}</div>
+        </div>
+        <div class="badges">
+          <span class="badge" :class="statusOf(selected).cls">{{ statusOf(selected).text }}</span>
+          <span class="badge" v-if="yes(selected.AOG)" style="background:#dc2626;color:#fff">AOG</span>
+          <span class="badge" v-if="yes(selected.LongTurn)" style="background:#a16207;color:#fff">长停</span>
+          <span class="badge" v-if="yes(selected.International)" style="background:#9a3412;color:#fff">国际</span>
+          <button class="modal-close" @click="closeDetail" title="关闭">×</button>
+        </div>
+      </div>
+      <section class="detail-group" v-for="g in detail.sections" :key="g.title">
+        <h3>{{ g.title }}</h3>
+        <div class="detail-grid">
+          <div class="detail-item" v-for="row in g.rows" :key="row.label + '|' + row.value" :class="{ wide: row.wide }">
+            <span class="k" v-if="row.label">{{ row.label }}</span>
+            <span class="v">{{ row.value }}</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+const DATA_URL = 'https://gist.githubusercontent.com/honghebincsg/0f820895dffee67ecf897420e1e430cb/raw/fid_latest.json';
+const STATUS_URL = 'https://gist.githubusercontent.com/honghebincsg/0f820895dffee67ecf897420e1e430cb/raw/fid_status.json';
+const REFRESH_MS = 60000;
+
+const BOOL_FIELDS = new Set(['International', 'AOG', 'LongTurn', 'isTechStop', 'isFullHandle',
+  'Printed', 'Deleted', 'invoiced', 'invoiceinfook', 'MxControlCalled', 'techs_verified', 'istech',
+  'MxControl', 'AWR', 'DeicebyPMX', 'MRT', 'acparkingnotified']);
+
+const LABELS = {
+  FlightNumber: '航班号', Customer: '客户', RegistrationNumber: '注册号', ACType: '机型', GateNumber: '机位',
+  Station: '站点', AirportCode: '机场代码', FromStation: '始发站', ToStation: '目的站',
+  International: '国际航班', AOG: 'AOG', LongTurn: '长停', isTechStop: '技术经停', isFullHandle: '全代理',
+  LSODate: '任务单日期', DepartureDate: '离港日期',
+  STA: 'STA 计划到达', ETA: 'ETA 预计到达', ATA: 'ATA 实际到达',
+  STD: 'STD 计划离港', ETD: 'ETD 预计离港', ATD: 'ATD 实际离港',
+  Delay: '延误', DelayReason: '延误原因', BlockIn: '轮挡进', BlockOut: '轮挡出', Takeoff: '起飞',
+  FLT_Duration: '飞行时长', blockhours: '轮挡小时', total: '总时长', additionalhours: '附加时长',
+  Comments_MX: '机务备注', Comments_FO: '机组备注', Comments_GH: '地面备注',
+  Comments_PS: '客运备注', Comments_TR: '培训备注', Comments_SM: '服务备注',
+  FlightNotes: '航班备注', WorkPerformed_MX: '机务工作', WorkPerformed_FO: '机组工作',
+  InboundCrew: '进港机组', OutboundCrew: '出港机组',
+  InboundCargo: '进港货物', OutboundCargo: '出港货物',
+  Inbound_CN: '进港 CN', Outbound_CN: '出港 CN', OutboundWU: '出港 WU', OutboundPU: '出港 PU',
+  Outbound_fuel: '出港燃油', Fuel_Company: '燃油公司', Customs: '海关',
+  SMPersonnel: '服务人员', CarrierRepName: '航司代表', DutyMgr: '值班经理',
+  MxControl: '机务控制', MxControlCalled: '已通知机务控制',
+  AWR: 'AWR', AWR_Employee: 'AWR 员工', DeicebyPMX: '除冰(PMX)', DeiceTrucksNum: '除冰车数量',
+  MRT: 'MRT', toolbox_number: '工具箱号', TruckNumber: '车辆号', CSPickUp: 'CS 接送',
+  ControlNumber: '控制号', LogPageNumber: '日志页号',
+  PaperWorkStatus: '单据状态', PaperWorkCompletedBy: '单据完成人',
+  invoiced: '已开票', invoiceinfook: '发票信息已确认', Printed: '已打印', Deleted: '已删除',
+  DateCreated: '创建日期', CreatedBy: '创建人', EnteredBy: '录入人',
+  EditedBy: '修改人', DateModified: '修改日期', LastModifiedBy: '最后修改人'
+};
+
+const SERVICE_FIELDS = {
+  MXServices: '机务', FOServices: '机组', GHServices: '地面', RPServices: '航务',
+  ITServices: 'IT', DIServices: '除冰', CSServices: '清洁', TRServices: '培训',
+  CSHotelPU: '酒店接送', SMServices: '服务管理', FBServices: '货运', EWServices: '设备',
+  CLServices: '配餐', PSServices: '客运', MEServices: '维修', CustomsServices: '海关'
+};
+
+const DETAIL_GROUPS = [
+  { title: '航班概览', fields: ['FlightNumber', 'Customer', 'RegistrationNumber', 'ACType', 'GateNumber', 'Station',
+      'AirportCode', 'FromStation', 'ToStation', 'International', 'AOG', 'LongTurn', 'isTechStop', 'isFullHandle'] },
+  { title: '时刻', fields: ['LSODate', 'DepartureDate', 'STA', 'ETA', 'ATA', 'STD', 'ETD', 'ATD', 'Delay', 'DelayReason',
+      'BlockIn', 'BlockOut', 'Takeoff', 'FLT_Duration', 'blockhours', 'total', 'additionalhours'] },
+  { title: '备注与工作', fields: ['Comments_MX', 'Comments_FO', 'Comments_GH', 'Comments_PS', 'Comments_TR', 'Comments_SM',
+      'FlightNotes', 'WorkPerformed_MX', 'WorkPerformed_FO'] },
+  { title: '机组与货物', fields: ['InboundCrew', 'OutboundCrew', 'InboundCargo', 'OutboundCargo', 'Inbound_CN', 'Outbound_CN',
+      'OutboundWU', 'OutboundPU', 'Outbound_fuel', 'Fuel_Company', 'Customs'] },
+  { title: '人员与联络', fields: ['SMPersonnel', 'CarrierRepName', 'DutyMgr', 'MxControl', 'MxControlCalled', 'AWR',
+      'AWR_Employee', 'DeicebyPMX', 'DeiceTrucksNum', 'MRT', 'toolbox_number', 'TruckNumber', 'CSPickUp',
+      'ControlNumber', 'LogPageNumber'] },
+  { title: '单据与记录', fields: ['PaperWorkStatus', 'PaperWorkCompletedBy', 'invoiced', 'invoiceinfook', 'Printed', 'Deleted',
+      'DateCreated', 'CreatedBy', 'EnteredBy', 'EditedBy', 'DateModified', 'LastModifiedBy'] }
+];
+
+Vue.createApp({
+  setup() {
+    const snap = Vue.ref({});
+    const statusInfo = Vue.ref(null);
+    const selected = Vue.ref(null);
+    const page = Vue.ref('fid');
+    const atisCode = Vue.ref('ZGGG');
+    const atisLoading = Vue.ref(false);
+    const atisError = Vue.ref('');
+    const atisData = Vue.ref(null);
+    const params = new URLSearchParams(location.search);
+    if (params.get('page') === 'atis') page.value = 'atis';
+    const initialCode = (params.get('code') || '').trim().toUpperCase();
+    if (/^[A-Z]{4}$/.test(initialCode)) atisCode.value = initialCode;
+    const lastError = Vue.ref('');
+    const lastLoad = Vue.ref('—');
+    const countdown = Vue.ref(60);
+    const clock = Vue.ref('');
+    const tzName = Vue.ref('');
+
+    const flights = Vue.computed(() => {
+      const rows = Array.isArray(snap.value.flights) ? [...snap.value.flights] : [];
+      return rows.sort((a, b) => `${a.LSODate || ''}${a.STA || ''}`.localeCompare(`${b.LSODate || ''}${b.STA || ''}`));
+    });
+    const flightCount = Vue.computed(() => flights.value.length);
+    const advisory = Vue.computed(() => {
+      const a = snap.value.advisory;
+      return a && a !== 'None' ? a : '';
+    });
+    const zulu = Vue.computed(() => {
+      const t = (snap.value.times || '').split('^');
+      return t.length > 1 ? t[1] : '';
+    });
+    const fetchedLocal = Vue.computed(() => {
+      const s = snap.value.fetched_at;
+      if (!s) return '';
+      const d = new Date(s);
+      return isNaN(d) ? s : d.toLocaleString('zh-CN', { hour12: false });
+    });
+    const healthy = Vue.computed(() => {
+      const ok = statusInfo.value && statusInfo.value.ok === true;
+      const age = snap.value.fetched_at ? Date.now() - new Date(snap.value.fetched_at).getTime() : Infinity;
+      return !!ok && age < 30 * 60 * 1000;
+    });
+
+    const text = v => (v === null || v === undefined || v === '' ? '—' : String(v));
+    const yes = v => v === true || v === '1' || v === 1;
+    const statusOf = f => {
+      if (yes(f.AOG)) return { text: 'AOG', cls: 'aog' };
+      if (f.ATA) return { text: '已到达', cls: 'arrived' };
+      if (f.ETA) return { text: '预计', cls: 'eta' };
+      return { text: '计划', cls: 'plan' };
+    };
+    const timeTag = f => {
+      if (f.ATA) return { cls: 'ata', label: `ATA ${f.ATA}`, extra: f.STA ? `STA ${f.STA}` : '' };
+      if (f.ETA) return { cls: 'eta', label: `ETA ${f.ETA}`, extra: f.STA ? `STA ${f.STA}` : '' };
+      return { cls: 'sta', label: `STA ${f.STA || '—'}`, extra: '' };
+    };
+    const rowClass = f => ({
+      'row-aog': yes(f.AOG),
+      'row-arrived': !yes(f.AOG) && !!f.ATA,
+      'row-eta': !yes(f.AOG) && !f.ATA && !!f.ETA,
+      'row-longturn': yes(f.LongTurn),
+    });
+    const remarkTitle = f => [f.Comments_MX, f.Comments_FO, f.DelayReason].filter(Boolean).join(' | ');
+
+    const combinedText = Vue.computed(() => {
+      const combined = atisData.value && atisData.value.combined;
+      return (combined && combined.text) || '';
+    });
+
+    const isEmpty = v => v === null || v === undefined || v === '';
+    const openDetail = f => { selected.value = f; };
+    const closeDetail = () => { selected.value = null; };
+    const onKey = e => { if (e.key === 'Escape') closeDetail(); };
+
+    async function queryAtis() {
+      const code = (atisCode.value || '').trim().toUpperCase();
+      atisCode.value = code;
+      if (!/^[A-Z]{4}$/.test(code)) {
+        atisError.value = '请输入 4 位 ICAO 机场代码';
+        return;
+      }
+      atisLoading.value = true;
+      atisError.value = '';
+      atisData.value = null;
+      try {
+        const resp = await fetch('http://127.0.0.1:17890/api/atis', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code }),
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const result = await resp.json();
+        if (!result.ok) throw new Error(result.error || '查询失败');
+        atisData.value = result.data;
+      } catch (e) {
+        atisError.value = (e && e.message) || String(e);
+      } finally {
+        atisLoading.value = false;
+      }
+    }
+
+    const detail = Vue.computed(() => {
+      const f = selected.value;
+      if (!f) return { sections: [] };
+      const used = new Set(['recno', 'CustomerID', 'CustomerOf', 'history', 'addlhourshistory',
+        'sortTime', 'SortTime', 'fidchanges', 'effectiveLSODate', 'effectiveArrival', 'effectiveDeparture']);
+      const sections = [];
+      for (const group of DETAIL_GROUPS) {
+        const rows = [];
+        for (const key of group.fields) {
+          used.add(key);
+          if (BOOL_FIELDS.has(key)) {
+            rows.push({ label: LABELS[key] || key, value: yes(f[key]) ? '是' : '否' });
+          } else if (!isEmpty(f[key])) {
+            rows.push({ label: LABELS[key] || key, value: String(f[key]) });
+          }
+        }
+        if (rows.length) sections.push({ title: group.title, rows });
+      }
+      const services = Object.entries(SERVICE_FIELDS).filter(([key]) => yes(f[key])).map(([, label]) => label);
+      if (services.length) {
+        sections.push({ title: '已启用服务', rows: [{ label: '', value: services.join('、'), wide: true }] });
+      }
+      const others = Object.keys(f)
+        .filter(key => !used.has(key) && !isEmpty(f[key]))
+        .map(key => ({ label: key, value: String(f[key]) }));
+      if (others.length) sections.push({ title: '其他字段', rows: others });
+      return { sections };
+    });
+
+    let refreshTimer = null;
+    let tickTimer = null;
+
+    async function load() {
+      const bust = '?t=' + Date.now();
+      try {
+        const opts = { cache: 'no-store', signal: AbortSignal.timeout(15000) };
+        const [dataResp, statusResp] = await Promise.all([
+          fetch(DATA_URL + bust, opts),
+          fetch(STATUS_URL + bust, opts).catch(() => null),
+        ]);
+        if (!dataResp.ok) throw new Error('HTTP ' + dataResp.status);
+        snap.value = await dataResp.json();
+        statusInfo.value = statusResp && statusResp.ok ? await statusResp.json() : null;
+        if (selected.value) {
+          const fresh = (snap.value.flights || []).find(x => x.recno === selected.value.recno);
+          if (fresh) selected.value = fresh;
+        }
+        lastError.value = '';
+        lastLoad.value = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+      } catch (e) {
+        lastError.value = e.message || String(e);
+      }
+      countdown.value = REFRESH_MS / 1000;
+    }
+
+    Vue.onMounted(() => {
+      const tick = () => {
+        const now = new Date();
+        clock.value = now.toLocaleTimeString('zh-CN', { hour12: false });
+        tzName.value = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+      };
+      tick();
+      tickTimer = setInterval(tick, 1000);
+      window.addEventListener('keydown', onKey);
+      load();
+      if (params.get('auto') === '1' && page.value === 'atis') queryAtis();
+      refreshTimer = setInterval(load, REFRESH_MS);
+      setInterval(() => { if (countdown.value > 0) countdown.value--; }, 1000);
+    });
+    Vue.onUnmounted(() => {
+      clearInterval(refreshTimer);
+      clearInterval(tickTimer);
+      window.removeEventListener('keydown', onKey);
+    });
+
+    return { snap, statusInfo, selected, flights, flightCount, advisory, zulu, fetchedLocal, healthy,
+             countdown, clock, tzName, lastError, lastLoad, text, yes, statusOf, timeTag, rowClass, remarkTitle,
+             openDetail, closeDetail, detail, page, atisCode, atisLoading, atisError, atisData, combinedText, queryAtis };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>

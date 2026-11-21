@@ -1,55 +1,77 @@
-# FID 抓取 → GitHub Gist
+# CSN ANC 航班信息与 ATIS
 
-`https://www.pegasusintranet.com/F/C/CSN/fid.php` 国内直连超时，这里用 GitHub Actions 的海外节点定时抓取，把结果写入一个 Gist，供国内按需读取。
+Windows 桌面程序 + GitHub Actions 抓取 + Gist 存储的组合方案。
 
-页面本身是空壳，航班数据由脚本动态请求 `POST /F/C/ajaxgetflights.php`（参数 `fid=CSN&cust=CSN`）获得，抓取脚本直接调用这个接口。
+- **桌面程序**：MYGO（Go）+ Vue 3（本地打包），左侧菜单切换「航班看板」和「ATIS 查询」
+- **航班看板**：CSN 在 ANC（安克雷奇）的航班与停机位，每 60 秒刷新
+- **ATIS 查询**：输入 4 位 ICAO 机场代码，美国机场优先 atis.info，其他机场使用 atis.guru
+- **云端**：GitHub Actions 抓取，Gist 存储最新 JSON；cron-job.org 每 5 分钟触发 FID 抓取
 
-## 文件
+详细说明见 [docs/交接说明.md](docs/交接说明.md)。
 
-- `.github/workflows/fetch-fid.yml`：每 30 分钟定时 + 手动触发
-- `scripts/fetch_fid.py`：抓取、解析表格、发布到 Gist；失败时也会把失败状态写进 Gist，旧数据保留
-- `requirements.txt`
-
-## 配置（一次性）
-
-1. 在 GitHub 新建一个仓库（建议 private），把本目录推到默认分支 `main`。
-2. 创建 PAT：GitHub → Settings → Developer settings → Personal access tokens →
-   Tokens (classic) → 勾选 `gist` 权限，有效期按需。
-3. 仓库 → Settings → Secrets and variables → Actions，新建 secret：
-   - `FID_GIST_TOKEN`：第 2 步的 token
-   - `FID_GIST_ID`：先留空，第一次运行后再填（见第 4 步）
-   - `FID_COOKIE`（可选）：页面若需要登录，填浏览器里该站点的 Cookie
-4. 仓库 → Actions → `Fetch FID data to Gist` → Run workflow。首次运行会自动创建一个 secret Gist，
-   运行摘要里会给出 `GIST_ID`。把它保存为 secret `FID_GIST_ID`，之后每次更新同一个 Gist。
-
-## 输出
-
-Gist 包含：
-
-| 文件 | 内容 |
-| --- | --- |
-| `fid_latest.json` | 航班数据：`flights` 数组、通告、页面时间、抓取时间 |
-| `fid_flights.csv` | 同一份航班数据，CSV 格式，便于表格或程序读取 |
-| `fid_raw.html` | 页面原始 HTML |
-| `fid_status.json` | 最近一次抓取状态（成功/失败、航班数、错误信息） |
-
-国内读取地址（`gist.githubusercontent.com` 国内是否能直连取决于当地网络）：
+## 目录
 
 ```text
-https://gist.githubusercontent.com/<用户名>/<GIST_ID>/raw/fid_latest.json
-https://gist.githubusercontent.com/<用户名>/<GIST_ID>/raw/fid_flights.csv
-https://gist.githubusercontent.com/<用户名>/<GIST_ID>/raw/fid_status.json
+desktop/                 Windows 桌面程序（Go + MYGO + Vue）
+scripts/                 GitHub Actions 抓取脚本
+.github/workflows/       FID / ATIS 工作流
+docs/                    方案说明、交接说明、界面截图
 ```
 
-## 调整
+## 本地构建
 
-- 频率：workflow 里 cron 现在是 `*/5`（UTC，GitHub 允许的最短间隔，实际可能延迟几分钟）。private 仓库每次运行都消耗 Actions 分钟数，5 分钟一档会超出每月 2000 分钟免费额度；仓库改为 public 可免费不限量，或降低频率/购买分钟数。
-- 目标地址：仓库 Variables 里加 `FID_URL` 可覆盖默认地址。
-- 首次联调：运行后下载 run 的 `fid-snapshot` artifact，检查 `fid_raw.html` 是否抓到真实数据；
-  如果抓到的是登录页，就要配置 `FID_COOKIE`。
+环境：Windows 10+（WebView2）、Go 1.27+、go-winres。
+
+```bat
+cd desktop
+go-winres make
+go build -ldflags="-H windowsgui" -o anc-fid.exe .
+```
+
+- 前端资源（含 `vendor/vue.global.prod.js`）通过 `//go:embed` 打包进 exe
+- 双击 `anc-fid.exe` 运行；无控制台窗口
+- 修改前端或 Go 代码后重新执行 `go build` 即可
+
+## Token 配置
+
+程序触发 GitHub Actions 时需要 token，读取顺序：
+
+1. 环境变量 `GH_DISPATCH_TOKEN`
+2. 本地文件 `%LOCALAPPDATA%\anc-fid\dispatch_token.txt`
+3. 编译时内置常量（`desktop/token_local.go`）
+
+仓库不包含 `token_local.go`（已在 `.gitignore` 中）。新电脑 clone 后：
+
+- 推荐：创建 `desktop/token_local.go`，内容为 `func init() { embeddedDispatchToken = "<你的token>" }`
+- 或：设置环境变量 / 本地 token 文件
+
+## 云端配置
+
+| 组件 | 值 |
+| --- | --- |
+| 仓库 | `honghebincsg/pegasus-fid-gist`（public） |
+| Gist | `honghebincsg/0f820895dffee67ecf897420e1e430cb` |
+| FID workflow | `.github/workflows/fetch-fid.yml` |
+| ATIS workflow | `.github/workflows/fetch-atis.yml`（workflow_dispatch，`inputs.airport`） |
+| secrets | `FID_GIST_TOKEN`、`FID_GIST_ID` |
+| 外部定时器 | cron-job.org 任务 `Trigger FID fetch`，每 5 分钟 |
+
+Gist 文件命名：
+
+- FID：`fid_latest.json`、`fid_flights.csv`、`fid_status.json`
+- ATIS：每个机场一个 JSON，如 `KLAX.json`、`PANC.json`、`EHAM.json`
+
+## 数据流
+
+1. **FID**：cron-job.org → Actions 抓取 Pegasus FID 接口 → 覆盖写 Gist → 桌面程序每 60 秒读取
+2. **ATIS**：
+   - 本机直连 atis.info / atis.guru（1–4 秒）并显示
+   - 成功后后台异步触发 Actions，把同一份结果同步到 Gist
+   - 本机失败时触发 Actions 重新抓取并等待，不再读取旧的 Gist 数据
 
 ## 注意
 
-- GitHub 定时任务按 UTC 执行，高峰期可能延迟几分钟。
-- 仓库连续 60 天无提交时，GitHub 会暂停定时工作流，需要手动重新启用。
-- Gist 是 secret 而非真正私有，持有链接即可读取，不要往里放敏感信息。
+- 仓库是 public，**不要提交 token、Cookie 等凭据**
+- `token_local.go`、`dist/`、`*.exe`、`vibe_images/` 已在 `.gitignore` 中排除
+- Gist 是 secret 但持有链接即可读取，不要存放敏感信息
+- GitHub Actions 冷启动约 10 秒；本机直连通常 1–4 秒

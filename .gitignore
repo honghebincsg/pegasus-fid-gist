@@ -1,5 +1,15 @@
 out/
 .device.json
 .token.tmp
+.pat.tmp
+gists token.txt
 __pycache__/
 *.pyc
+
+# 本机凭据与构建产物
+desktop/token_local.go
+.email_auth.tmp
+dist/
+vibe_images/
+*.exe
+desktop/rsrc_windows_*.syso
