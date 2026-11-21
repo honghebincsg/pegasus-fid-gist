@@ -32,6 +32,18 @@ go build -ldflags="-H windowsgui" -o anc-fid.exe .
 - 双击 `anc-fid.exe` 运行；无控制台窗口
 - 修改前端或 Go 代码后重新执行 `go build` 即可
 
+## 开发热更新
+
+```bat
+cd desktop
+dev.bat
+```
+
+- 修改 `frontend/` 保存后窗口约 1 秒自动刷新
+- 修改 Go 文件保存后自动重新编译并重启窗口
+- 开发服务器只监听本机 5173（仅开发时），生产程序不监听本地端口
+- 开发构建产物在 `desktop/.dev/`，不纳入仓库
+
 ## Token 配置
 
 程序触发 GitHub Actions 时需要 token，读取顺序：
@@ -68,6 +80,7 @@ Gist 文件命名：
    - 本机直连 atis.info / atis.guru（1–4 秒）并显示
    - 成功后后台异步触发 Actions，把同一份结果同步到 Gist
    - 本机失败时触发 Actions 重新抓取并等待，不再读取旧的 Gist 数据
+   - 界面底部标注获取方式：`本机直连源网站` 或 `GitHub Actions 抓取后从 Gist 读取`
 
 ## 注意
 

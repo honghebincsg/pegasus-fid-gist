@@ -4,6 +4,7 @@ import (
 	"embed"
 	"io/fs"
 	"log"
+	"os"
 
 	"github.com/egoist/mygo"
 )
@@ -20,11 +21,17 @@ func main() {
 		log.Fatal(err)
 	}
 	mygo.SetFrontend(web)
-	go startATISServer()
+	if err := mygo.Protocol.HandleFunc("ancapi", handleATIS); err != nil {
+		log.Printf("register ATIS protocol: %v", err)
+	}
+	windowURL := "/"
+	if devURL := os.Getenv("MYGO_DEV_URL"); devURL != "" {
+		windowURL = devURL
+	}
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
 			Title:     "CSN ANC · 航班与 ATIS",
-			URL:       "/",
+			URL:       windowURL,
 			Width:     1360,
 			Height:    720,
 			MinWidth:  1080,

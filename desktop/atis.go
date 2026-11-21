@@ -18,12 +18,11 @@ import (
 )
 
 const (
-	ghAPI         = "https://api.github.com"
-	ghRepo        = "honghebincsg/pegasus-fid-gist"
-	atisWorkflow  = "423862105"
-	gistRawBase   = "https://gist.githubusercontent.com/honghebincsg/0f820895dffee67ecf897420e1e430cb/raw/"
-	atisServerURL = "127.0.0.1:17890"
-	runWaitLimit  = 150 * time.Second
+	ghAPI        = "https://api.github.com"
+	ghRepo       = "honghebincsg/pegasus-fid-gist"
+	atisWorkflow = "423862105"
+	gistRawBase  = "https://gist.githubusercontent.com/honghebincsg/0f820895dffee67ecf897420e1e430cb/raw/"
+	runWaitLimit = 150 * time.Second
 )
 
 var (
@@ -38,23 +37,11 @@ func atisGistName(code string) string {
 	return strings.ToUpper(code) + ".json"
 }
 
-func startATISServer() {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/atis", handleATIS)
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `{"ok":true}`)
-	})
-	log.Printf("ATIS API listening on http://%s", atisServerURL)
-	if err := http.ListenAndServe(atisServerURL, mux); err != nil {
-		log.Printf("ATIS API server stopped: %v", err)
-	}
-}
-
 func allowCORS(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Cache-Control", "no-store")
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
@@ -69,18 +56,21 @@ func handleATIS(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if r.Method != http.MethodPost {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"ok": false, "error": "method not allowed"})
 		return
 	}
-	var req struct {
-		Code string `json:"code"`
+	code := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("code")))
+	if code == "" && r.Method == http.MethodPost {
+		var req struct {
+			Code string `json:"code"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid request"})
+			return
+		}
+		code = strings.ToUpper(strings.TrimSpace(req.Code))
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid request"})
-		return
-	}
-	code := strings.ToUpper(strings.TrimSpace(req.Code))
 	if !airportRe.MatchString(code) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "请输入 4 位 ICAO 机场代码"})
 		return
@@ -209,6 +199,7 @@ func fetchATISInfo(code string) map[string]any {
 		"source_url": url,
 		"airport":    code,
 		"source":     "atis.info",
+		"fetch_mode": "direct",
 		"fetched_at": utcNow(),
 		"combined":   combined,
 		"arrival":    arrival,
@@ -285,6 +276,7 @@ func fetchATISGuru(code string) (map[string]any, bool) {
 		"source_url": url,
 		"airport":    code,
 		"source":     "atis.guru",
+		"fetch_mode": "direct",
 		"fetched_at": utcNow(),
 		"combined":   nil,
 		"arrival":    arrival,
@@ -363,6 +355,9 @@ func fetchATIS(code string) (map[string]any, error) {
 	data, err := readATISGist(code)
 	if errors.Is(err, errNoATIS) {
 		return nil, fmt.Errorf("该机场暂无 ATIS 数据")
+	}
+	if err == nil {
+		data["fetch_mode"] = "gist"
 	}
 	return data, err
 }

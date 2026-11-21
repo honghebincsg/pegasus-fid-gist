@@ -12,4 +12,5 @@ desktop/token_local.go
 dist/
 vibe_images/
 *.exe
+desktop/.dev/
 desktop/rsrc_windows_*.syso
