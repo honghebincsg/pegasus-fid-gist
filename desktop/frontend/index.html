@@ -497,8 +497,9 @@
         <div class="atis-error" v-else-if="atisBatchError && !atisBatch">{{ atisBatchError }}</div>
         <template v-else-if="atisBatch">
           <div class="atis-batch-meta">
-            <span>常用机场 {{ atisBatch.count }} 个 · 成功 {{ atisBatch.ok_count }} 个 · 缓存更新 {{ atisBatch.fetched_at }} · 每 10 分钟自动刷新</span>
+            <span>常用机场 {{ atisBatch.count }} 个 · 成功 {{ atisBatch.ok_count }} 个 · 缓存更新 {{ atisBatch.fetched_at }} · 每 2 分钟自动刷新</span>
             <span class="age-badge" v-if="batchAgeText" :class="batchAgeClass">{{ batchAgeText }}</span>
+            <span>下次刷新 <b>{{ batchCountdownText }}</b></span>
             <span v-if="atisBatchError" style="color:#fca5a5">{{ atisBatchError }}</span>
             <span class="spacer"></span>
             <button @click="loadATISBatch(true, true)" :disabled="atisBatchLoading">{{ atisBatchLoading ? '刷新中…' : '刷新' }}</button>
@@ -1079,12 +1080,19 @@ Vue.createApp({
     }
 
     const ATIS_BATCH_TTL = 5 * 60 * 1000;
-    const ATIS_BATCH_REFRESH_MS = 10 * 60 * 1000;
+    const ATIS_BATCH_REFRESH_MS = 2 * 60 * 1000;
     let atisBatchLoadedAt = 0;
+    let atisBatchNextAt = Date.now() + ATIS_BATCH_REFRESH_MS;
+    const batchCountdown = Vue.ref(ATIS_BATCH_REFRESH_MS / 1000);
+    const batchCountdownText = Vue.computed(() => {
+      const s = Math.max(0, batchCountdown.value);
+      return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+    });
 
     async function loadATISBatch(force = false, manual = false) {
       // 5 分钟内的缓存直接复用，切换页面回来不重新抓取
       if (!force && atisBatch.value && Date.now() - atisBatchLoadedAt < ATIS_BATCH_TTL) return;
+      atisBatchNextAt = Date.now() + ATIS_BATCH_REFRESH_MS;
       const startedAt = Date.now();
       atisBatchLoading.value = true;
       atisBatchError.value = '';
@@ -1375,8 +1383,11 @@ Vue.createApp({
       Vue.watch(page, v => { if (v === 'atis' && atisView.value === 'batch') loadATISBatch(); });
       if (params.get('auto') === '1' && page.value === 'atis') queryAtis();
       refreshTimer = setInterval(load, REFRESH_MS);
-      // 后台常驻刷新：不论当前停留在哪个页面，每 10 分钟静默拉取一次 Gist 缓存
-      batchTimer = setInterval(() => loadATISBatch(true), ATIS_BATCH_REFRESH_MS);
+      // 后台常驻刷新：不论当前停留在哪个页面，每 2 分钟静默拉取一次 Gist 缓存
+      batchTimer = setInterval(() => {
+        if (Date.now() >= atisBatchNextAt) loadATISBatch(true);
+        batchCountdown.value = Math.max(0, Math.ceil((atisBatchNextAt - Date.now()) / 1000));
+      }, 1000);
       gatePollTimer = setInterval(pollGateHistoryPending, 3000);
       setInterval(() => { if (countdown.value > 0) countdown.value--; }, 1000);
     });
@@ -1394,7 +1405,7 @@ Vue.createApp({
              airportName, airportEnglish, atisInfoCode, landingRunways, departureRunways,
              latestATISTime, relativeTime, ageClass, highlightRunways, copyATIS, queryAtis, toast, revealExport,
              atisView, atisBatch, atisBatchLoading, atisBatchError, atisGroups, loadATISBatch, backToBatch,
-             batchName, batchEnglish, batchInfoCode, batchLatestTime, batchRunways, batchAgeText, batchAgeClass,
+             batchName, batchEnglish, batchInfoCode, batchLatestTime, batchRunways, batchAgeText, batchAgeClass, batchCountdownText,
              highlightRunwaysFor, historyAirport, historyMonths, historyData, historyLoading, historyError,
              historyAirports, historyTime, loadHistory, openHistory, exportATISHistory,
              gateHistOpen, gateHistMonths, gateHistFlight, gateHistData, gateHistLoading, gateHistError,
