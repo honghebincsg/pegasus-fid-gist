@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CSG FLIGHT INFO & ATIS</title>
+<script>try{if(localStorage.getItem('app-theme')==='light')document.documentElement.classList.add('light')}catch(e){}</script>
 <script src="vendor/vue.global.prod.js"></script>
 <style>
   :root {
@@ -333,6 +334,98 @@
   }
   .hist-table .alert-mark { color: #fbbf24; font-size: 12px; }
   .gate-modal h3 { margin: 0; font-size: 16px; color: #e2e8f0; }
+  .theme-toggle {
+    margin-top: auto; display: flex; align-items: center; gap: 8px;
+    padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px;
+    color: var(--muted); font-size: 13px; cursor: pointer; user-select: none;
+  }
+  .theme-toggle:hover { background: rgba(148,163,184,.1); color: var(--text); }
+  .theme-toggle .ic { font-size: 15px; }
+
+  /* ---------- 浅色主题 ---------- */
+  html.light {
+    --bg: #eef3f9;
+    --panel: rgba(255,255,255,.92);
+    --line: rgba(30,64,120,.16);
+    --text: #16222f;
+    --muted: #5c6b7d;
+    --green: #16a34a;
+    --red: #dc2626;
+  }
+  html.light body {
+    background:
+      radial-gradient(1100px 500px at 15% -10%, rgba(125,180,255,.35), transparent 60%),
+      radial-gradient(900px 420px at 95% 0%, rgba(52,211,153,.20), transparent 55%),
+      var(--bg);
+  }
+  html.light .sidebar { background: rgba(255,255,255,.92); }
+  html.light .nav-item:hover { background: rgba(30,64,120,.08); color: var(--text); }
+  html.light .nav-item.active { background: rgba(16,185,129,.14); color: #047857; }
+  html.light .side-brand .txt b { color: #0f172a; }
+  html.light .theme-toggle:hover { background: rgba(30,64,120,.08); }
+  html.light .spinner { border-color: rgba(16,185,129,.2); border-top-color: #059669; }
+  html.light .atis-form input, html.light .hist-toolbar select, html.light .hist-toolbar input {
+    background: rgba(255,255,255,.92); border-color: rgba(30,64,120,.25);
+  }
+  html.light .atis-error { background: rgba(239,68,68,.1); color: #b91c1c; }
+  html.light .atis-ap-error { background: rgba(239,68,68,.1); color: #b91c1c; }
+  html.light .atis-airport .icao { border-color: rgba(2,132,199,.35); color: #0369a1; }
+  html.light .atis-airport .iata { color: #b45309; }
+  html.light .atis-chip { color: #047857; background: rgba(16,185,129,.12); border-color: rgba(16,185,129,.28); }
+  html.light .atis-chip.source { color: #0369a1; background: rgba(14,165,233,.1); border-color: rgba(14,165,233,.28); }
+  html.light .age-badge.fresh { color: #15803d; background: rgba(34,197,94,.14); border-color: rgba(34,197,94,.35); }
+  html.light .age-badge.warm { color: #b45309; background: rgba(251,191,36,.14); border-color: rgba(251,191,36,.4); }
+  html.light .age-badge.stale { color: #b91c1c; background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.35); }
+  html.light .atis-card { background: rgba(255,255,255,.8); border-left-color: #10b981; }
+  html.light .atis-card.departure { border-left-color: #0ea5e9; }
+  html.light .atis-card.combined { border-left-color: #d97706; }
+  html.light .atis-card-head h3 { color: #047857; }
+  html.light .atis-card.departure .atis-card-head h3 { color: #0369a1; }
+  html.light .atis-card p { color: #1e293b; }
+  html.light .copy-btn { background: rgba(30,64,120,.08); }
+  html.light .copy-btn:hover { background: rgba(30,64,120,.16); }
+  html.light .runway-group, html.light .atis-ap { background: rgba(255,255,255,.8); }
+  html.light .atis-group h3 { color: #047857; }
+  html.light .atis-batch-meta button, html.light .back-btn, html.light .hist-toolbar button {
+    background: rgba(30,64,120,.08);
+  }
+  html.light .atis-batch-meta button:hover, html.light .back-btn:hover, html.light .hist-toolbar button:hover {
+    background: rgba(30,64,120,.16);
+  }
+  html.light .brand .code { color: #047857; }
+  html.light thead th { background: #e6f4ec; color: #065f46; }
+  html.light tbody td { border-bottom-color: rgba(30,64,120,.08); }
+  html.light td.ac { color: #475569; }
+  html.light td.gate { color: #b45309; }
+  html.light td.remarks { color: #334155; }
+  html.light .tag.sta, html.light .badge.plan { background: rgba(30,64,120,.1); color: #334155; }
+  html.light .badge.eta { background: rgba(34,197,94,.16); color: #15803d; }
+  html.light .badge.arrived { background: rgba(239,68,68,.14); color: #b91c1c; }
+  html.light tr.row-eta { background: rgba(34,197,94,.12); }
+  html.light tr.row-arrived { background: rgba(239,68,68,.12); }
+  html.light tr.row-aog { background: rgba(220,38,38,.16); }
+  html.light .flt-btn { color: #0284c7; }
+  html.light .flt-btn:hover { color: #0369a1; }
+  html.light .modal-mask { background: rgba(30,41,59,.38); }
+  html.light .modal {
+    background: #fff; border-color: rgba(30,64,120,.2);
+    box-shadow: 0 24px 80px rgba(15,23,42,.25);
+  }
+  html.light .modal-head .flt { color: #0369a1; }
+  html.light .modal-close { background: rgba(30,64,120,.08); }
+  html.light .modal-close:hover { background: rgba(30,64,120,.16); }
+  html.light .detail-group h3 { color: #047857; }
+  html.light .meta .meta-btn { color: #0369a1; background: rgba(14,165,233,.1); border-color: rgba(2,132,199,.35); }
+  html.light .meta .meta-btn:hover { background: rgba(14,165,233,.2); }
+  html.light .hist-table th { background: rgba(30,64,120,.06); }
+  html.light .hist-table td { border-bottom-color: rgba(30,64,120,.08); }
+  html.light .hist-table tr:hover td { background: rgba(30,64,120,.05); }
+  html.light .hist-table td.time { color: #334155; }
+  html.light .hist-table .info-chip { color: #047857; background: rgba(16,185,129,.12); border-color: rgba(16,185,129,.28); }
+  html.light .hist-table .gate-chip { color: #b91c1c; background: rgba(239,68,68,.1); border-color: rgba(239,68,68,.3); }
+  html.light .hist-table td.empty { color: rgba(100,116,139,.5); }
+  html.light .gate-modal h3 { color: #16222f; }
+  html.light .footer .err, html.light footer .err { color: #b91c1c; }
 </style>
 </head>
 <body>
@@ -344,6 +437,10 @@
     </div>
     <div class="nav-item" :class="{ active: page === 'fid' }" @click="page = 'fid'">ANC停机位</div>
     <div class="nav-item" :class="{ active: page === 'atis' }" @click="page = 'atis'">ATIS 查询</div>
+    <div class="theme-toggle" @click="toggleTheme" :title="theme === 'light' ? '切换为深色' : '切换为浅色'">
+      <span class="ic">{{ theme === 'light' ? '☀' : '☾' }}</span>
+      <span>{{ theme === 'light' ? '浅色模式' : '深色模式' }}</span>
+    </div>
   </aside>
   <div class="content">
   <template v-if="page === 'fid'">
@@ -1080,6 +1177,37 @@ const app = Vue.createApp({
       } catch (e) { /* ignore */ }
     }
 
+    const theme = Vue.ref(document.documentElement.classList.contains('light') ? 'light' : 'dark');
+    const applyTheme = value => {
+      theme.value = value === 'light' ? 'light' : 'dark';
+      document.documentElement.classList.toggle('light', theme.value === 'light');
+      try { localStorage.setItem('app-theme', theme.value); } catch (e) { /* ignore */ }
+    };
+    async function loadThemeConfig() {
+      try {
+        const resp = await fetch('http://ancapi.localhost/config', { cache: 'no-store', signal: AbortSignal.timeout(8000) });
+        const result = await resp.json();
+        if (result.ok && result.data && result.data.theme) applyTheme(result.data.theme);
+      } catch (e) { /* 配置文件不可用时沿用本地记忆 */ }
+    }
+    async function toggleTheme() {
+      const next = theme.value === 'light' ? 'dark' : 'light';
+      applyTheme(next);
+      showToast(next === 'light' ? '已切换为浅色模式' : '已切换为深色模式', 'success', 2000);
+      try {
+        const resp = await fetch('http://ancapi.localhost/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ theme: next }),
+          signal: AbortSignal.timeout(8000),
+        });
+        const result = await resp.json();
+        if (!result.ok) throw new Error(result.error || '保存失败');
+      } catch (e) {
+        showToast(`主题保存失败：${(e && e.message) || e}`, 'error', 3000);
+      }
+    }
+
     async function copyATIS(text) {
       if (!text) return;
       try {
@@ -1402,6 +1530,7 @@ const app = Vue.createApp({
       window.addEventListener('keydown', onKey);
       load();
       loadATISBatch();
+      loadThemeConfig();
       Vue.watch(page, v => { if (v === 'atis' && atisView.value === 'batch') loadATISBatch(); });
       if (params.get('auto') === '1' && page.value === 'atis') queryAtis();
       refreshTimer = setInterval(load, REFRESH_MS);
@@ -1426,6 +1555,7 @@ const app = Vue.createApp({
              openDetail, closeDetail, detail, page, atisCode, atisLoading, atisError, atisData, combinedText, fetchModeLabel,
              airportName, airportEnglish, atisInfoCode, landingRunways, departureRunways,
              latestATISTime, relativeTime, ageClass, highlightRunways, copyATIS, queryAtis, toast, revealExport,
+             theme, toggleTheme,
              atisView, atisBatch, atisBatchLoading, atisBatchError, atisGroups, loadATISBatch, backToBatch,
              batchName, batchEnglish, batchInfoCode, batchLatestTime, batchRunways, batchAgeText, batchAgeClass, batchCountdownText,
              highlightRunwaysFor, historyAirport, historyMonths, historyData, historyLoading, historyError,

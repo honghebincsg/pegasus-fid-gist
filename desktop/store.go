@@ -395,6 +395,7 @@ func newAncAPIHandler() http.Handler {
 	mux.HandleFunc("/fid/history", handleFIDHistory)
 	mux.HandleFunc("/export/csv", handleExportCSV)
 	mux.HandleFunc("/export/reveal", handleRevealFile)
+	mux.HandleFunc("/config", handleConfig)
 	mux.HandleFunc("/gate/alerts/pending", handleGateHistoryPending)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
