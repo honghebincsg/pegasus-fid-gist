@@ -797,7 +797,7 @@ const DETAIL_GROUPS = [
       'DateCreated', 'CreatedBy', 'EnteredBy', 'EditedBy', 'DateModified', 'LastModifiedBy'] }
 ];
 
-Vue.createApp({
+const app = Vue.createApp({
   setup() {
     const snap = Vue.ref({});
     const statusInfo = Vue.ref(null);
@@ -1204,11 +1204,20 @@ Vue.createApp({
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         const result = await resp.json();
         if (!result.ok) throw new Error(result.error || '加载失败');
-        historyData.value = result.data;
+        const data = result.data || {};
+        // 仓库里的旧行可能没有跑道字段（JSON null），模板统一按数组处理
+        data.rows = (data.rows || []).map(r => ({
+          ...r,
+          landing: Array.isArray(r.landing) ? r.landing : [],
+          departure: Array.isArray(r.departure) ? r.departure : [],
+        }));
+        historyData.value = data;
         historyLoadedKey = key;
         historyLoadedAt = Date.now();
       } catch (e) {
-        historyError.value = (e && e.message) || String(e);
+        const msg = (e && e.message) || String(e);
+        historyError.value = msg;
+        showToast(`读取跑道历史失败：${msg}`, 'error', 4000);
       } finally {
         historyLoading.value = false;
       }
@@ -1246,7 +1255,9 @@ Vue.createApp({
         gateHistLoadedKey = key;
         gateHistLoadedAt = Date.now();
       } catch (e) {
-        gateHistError.value = (e && e.message) || String(e);
+        const msg = (e && e.message) || String(e);
+        gateHistError.value = msg;
+        showToast(`读取停机位历史失败：${msg}`, 'error', 4000);
       } finally {
         gateHistLoading.value = false;
       }
@@ -1422,7 +1433,19 @@ Vue.createApp({
              gateHistOpen, gateHistMonths, gateHistFlight, gateHistData, gateHistLoading, gateHistError,
              gateHistTime, loadGateHistory, openGateHistory, closeGateHistory, exportGateHistory };
   }
-}).mount('#app');
+});
+app.config.errorHandler = (err) => {
+  console.error(err);
+  let el = document.getElementById('app-error');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'app-error';
+    el.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:rgba(239,68,68,.95);color:#fff;padding:10px 20px;border-radius:8px;z-index:9999;font-size:14px;max-width:86vw;';
+    document.body.appendChild(el);
+  }
+  el.textContent = '界面出错：' + ((err && err.message) || err);
+};
+app.mount('#app');
 </script>
 </body>
 </html>
