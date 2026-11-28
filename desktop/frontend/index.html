@@ -1133,9 +1133,9 @@ const app = Vue.createApp({
     function ageClass(value) {
       const minutes = ageMinutes(value);
       if (minutes === null) return '';
-      if (minutes < 15) return 'fresh';
-      if (minutes < 60) return 'warm';
-      return 'stale';
+      if (minutes <= 30) return 'fresh'; // 半小时内：绿色
+      if (minutes < 60) return 'warm';   // 一小时以内：橙黄
+      return 'stale';                    // 一小时及以上：红色
     }
 
     function latestTimeOf(d) {
@@ -1229,13 +1229,16 @@ const app = Vue.createApp({
       document.documentElement.classList.toggle('light', theme.value === 'light');
       try { localStorage.setItem('app-theme', theme.value); } catch (e) { /* ignore */ }
     };
-    async function loadThemeConfig() {
+    async function loadThemeConfig(attempt = 0) {
       try {
         const resp = await fetch('http://ancapi.localhost/config', { cache: 'no-store', signal: AbortSignal.timeout(8000) });
         const result = await resp.json();
         if (themeDirty) return; // 用户已手动切换，忽略迟到的启动读取
         if (result.ok && result.data && result.data.theme) applyTheme(result.data.theme);
-      } catch (e) { /* 配置文件不可用时沿用本地记忆 */ }
+      } catch (e) {
+        // 启动瞬间后端可能还没就绪，稍后重试，避免沿用 localStorage 的旧主题
+        if (attempt < 2 && !themeDirty) setTimeout(() => loadThemeConfig(attempt + 1), 1200);
+      }
     }
     async function toggleTheme() {
       const next = theme.value === 'light' ? 'dark' : 'light';
