@@ -280,14 +280,16 @@
   .detail-item .v { font-size: 14px; color: var(--text); word-break: break-word; }
   .detail-item.wide { grid-column: 1 / -1; }
   .toast {
-    position: fixed; top: 20px; left: 50%; z-index: 999;
-    transform: translateX(-50%) translateY(-100px);
+    position: fixed; top: 50%; left: 50%; z-index: 999;
+    transform: translate(-50%, calc(-50% - 16px)); opacity: 0;
     padding: 10px 20px; border-radius: 8px;
     background: rgba(34,197,94,.95); color: #fff;
-    font-size: 14px; transition: transform .3s;
+    font-size: 14px; transition: transform .25s, opacity .25s;
     max-width: 86vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    pointer-events: none;
   }
-  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast.show { transform: translate(-50%, -50%); opacity: 1; pointer-events: auto; }
   .toast.error { background: rgba(239,68,68,.95); }
   .toast.clickable { cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,.35); }
   .toast.clickable:hover { background: rgba(22,163,74,.98); }
@@ -832,7 +834,7 @@
     </div>
   </div>
 
-  <div class="toast" :class="{ show: toast.show, error: toast.type === 'error', clickable: !!toast.path }" @click="revealExport" v-if="toast.show">{{ toast.msg }}</div>
+  <div class="toast" :class="{ show: toast.show, error: toast.type === 'error', clickable: !!toast.path }" @click="revealExport">{{ toast.msg }}</div>
 </div>
 
 <script>
