@@ -179,16 +179,16 @@
   .atis-nav-chip.fresh .dot { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,.7); }
   .atis-nav-chip.warm .dot { background: #f59e0b; box-shadow: 0 0 6px rgba(245,158,11,.7); }
   .atis-nav-chip.stale .dot { background: #ef4444; box-shadow: 0 0 6px rgba(239,68,68,.7); }
-  .atis-nav-chip.fresh .rwy-line { color: #4ade80; }
-  .atis-nav-chip.warm .rwy-line { color: #fbbf24; }
-  .atis-nav-chip.stale .rwy-line { color: #f87171; }
+  .atis-nav-chip .rwy-line span.rwy-fresh { color: #4ade80; }
+  .atis-nav-chip .rwy-line span.rwy-warm { color: #fbbf24; }
+  .atis-nav-chip .rwy-line span.rwy-stale { color: #f87171; }
   .atis-nav-chip:hover { background: rgba(110,231,183,.16); border-color: rgba(110,231,183,.4); color: #6ee7b7; }
   .atis-nav-chip:hover .nm { color: inherit; }
   html.light .atis-nav { background: rgba(255,255,255,.92); }
   html.light .atis-nav-chip { background: rgba(30,64,120,.06); }
-  html.light .atis-nav-chip.fresh .rwy-line { color: #15803d; }
-  html.light .atis-nav-chip.warm .rwy-line { color: #b45309; }
-  html.light .atis-nav-chip.stale .rwy-line { color: #b91c1c; }
+  html.light .atis-nav-chip .rwy-line span.rwy-fresh { color: #15803d; }
+  html.light .atis-nav-chip .rwy-line span.rwy-warm { color: #b45309; }
+  html.light .atis-nav-chip .rwy-line span.rwy-stale { color: #b91c1c; }
   html.light .atis-nav-chip:hover { background: rgba(16,185,129,.12); border-color: rgba(16,185,129,.4); color: #047857; }
   .atis-groups { display: flex; flex-direction: column; gap: 18px; }
   .atis-group h3 { margin: 0 0 10px; font-size: 15px; color: #6ee7b7; letter-spacing: .5px; }
@@ -653,15 +653,15 @@
           <div class="atis-nav" v-if="batchNav.length">
             <span class="label">快速定位</span>
             <button class="atis-nav-chip" :class="a.age" v-for="a in batchNav" :key="'nav-' + a.code"
-                    @click="scrollToAirport(a.code)" :title="a.time">
+                    @click="scrollToAirport(a.code)" :title="'落地 ' + (a.landingTime || '—') + ' · 起飞 ' + (a.departureTime || '—')">
               <span class="top">
                 <span class="dot"></span>
                 <span class="code">{{ a.code }}</span>
                 <span class="nm">{{ a.name }}</span>
               </span>
               <span class="rwy-line" v-if="a.landing.length || a.departure.length">
-                <span v-if="a.landing.length">落 {{ a.landing.join('/') }}</span>
-                <span v-if="a.departure.length">起 {{ a.departure.join('/') }}</span>
+                <span class="rwy-land" :class="'rwy-' + a.landingAge" v-if="a.landing.length">落 {{ a.landing.join('/') }}</span>
+                <span class="rwy-dep" :class="'rwy-' + a.departureAge" v-if="a.departure.length">起 {{ a.departure.join('/') }}</span>
               </span>
               <span class="rwy-line" v-else>暂无跑道</span>
             </button>
@@ -1060,13 +1060,21 @@ const app = Vue.createApp({
       for (const g of atisGroups.value) {
         for (const d of g.items) {
           const rw = batchRunways(d);
+          const combinedTime = (d.combined && d.combined.updated_at) || '';
+          const landingTime = combinedTime || (d.arrival && d.arrival.updated_at) || '';
+          const departureTime = combinedTime || (d.departure && d.departure.updated_at) || '';
+          const latest = latestTimeOf(d);
           out.push({
             code: d.airport,
             name: batchName(d),
             landing: (rw && rw.landing) || [],
             departure: (rw && rw.departure) || [],
-            age: ageClass(latestTimeOf(d)),
-            time: relativeTime(latestTimeOf(d)),
+            age: ageClass(latest),
+            time: relativeTime(latest),
+            landingAge: ageClass(landingTime),
+            departureAge: ageClass(departureTime),
+            landingTime: relativeTime(landingTime),
+            departureTime: relativeTime(departureTime),
           });
         }
       }
