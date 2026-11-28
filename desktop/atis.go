@@ -256,12 +256,14 @@ func fetchATISInfo(code string) map[string]any {
 			"updated_at": extractATISTime(item.DATIS),
 			"text":       item.DATIS,
 		}
-		switch strings.ToLower(item.Type) {
-		case "combined":
+		kind := strings.ToLower(strings.TrimSpace(item.Type))
+		// atis.info 的 type 有两种写法：combined / arrival|departure，以及 arr / dep
+		switch {
+		case strings.HasPrefix(kind, "comb"):
 			combined = block
-		case "arrival":
+		case strings.HasPrefix(kind, "arr"):
 			arrival = block
-		case "departure":
+		case strings.HasPrefix(kind, "dep"):
 			departure = block
 		}
 	}

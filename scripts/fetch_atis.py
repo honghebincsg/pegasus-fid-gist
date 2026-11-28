@@ -108,11 +108,12 @@ def fetch_atisinfo(code: str):
             "text": text,
         }
         kind = (item.get("type") or "").lower()
-        if kind == "combined":
+        # atis.info 的 type 有两种写法：combined / arrival|departure，以及 arr / dep
+        if kind.startswith("comb"):
             combined = block
-        elif kind == "arrival":
+        elif kind.startswith("arr"):
             arrival = block
-        elif kind == "departure":
+        elif kind.startswith("dep"):
             departure = block
     if combined is None and not arrival["text"] and not departure["text"]:
         return None
