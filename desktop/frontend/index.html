@@ -154,13 +154,32 @@
   }
   .atis-batch-meta button:hover { background: rgba(148,163,184,.26); }
   .atis-batch-meta button:disabled { opacity: .5; cursor: default; }
+  .atis-nav {
+    position: sticky; top: -16px; z-index: 5;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    padding: 10px 0 8px; margin: -2px 0 2px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  .atis-nav .label { font-size: 12px; color: var(--muted); letter-spacing: 1px; margin-right: 2px; }
+  .atis-nav-chip {
+    padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px;
+    background: rgba(148,163,184,.12); color: var(--text); font-size: 12px;
+    cursor: pointer; white-space: nowrap;
+  }
+  .atis-nav-chip:hover { background: rgba(110,231,183,.16); border-color: rgba(110,231,183,.4); color: #6ee7b7; }
+  .atis-nav-chip .nm { color: var(--muted); margin-left: 6px; }
+  .atis-nav-chip:hover .nm { color: inherit; }
+  html.light .atis-nav { background: rgba(255,255,255,.92); }
+  html.light .atis-nav-chip { background: rgba(30,64,120,.06); }
+  html.light .atis-nav-chip:hover { background: rgba(16,185,129,.12); border-color: rgba(16,185,129,.4); color: #047857; }
   .atis-groups { display: flex; flex-direction: column; gap: 18px; }
   .atis-group h3 { margin: 0 0 10px; font-size: 15px; color: #6ee7b7; letter-spacing: .5px; }
   .atis-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(520px, 1fr)); gap: 14px; }
   .atis-ap {
     display: flex; flex-direction: column; gap: 10px; min-width: 0;
     padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px;
-    background: rgba(13,24,42,.6);
+    background: rgba(13,24,42,.6); scroll-margin-top: 54px;
   }
   .atis-ap .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
   .atis-ap .head .name { font-size: 18px; font-weight: 700; }
@@ -614,11 +633,17 @@
             <span class="spacer"></span>
             <button @click="loadATISBatch(true, true)" :disabled="atisBatchLoading">{{ atisBatchLoading ? '刷新中…' : '刷新' }}</button>
           </div>
+          <div class="atis-nav" v-if="batchNav.length">
+            <span class="label">快速定位</span>
+            <button class="atis-nav-chip" v-for="a in batchNav" :key="'nav-' + a.code" @click="scrollToAirport(a.code)">
+              {{ a.code }}<span class="nm">{{ a.name }}</span>
+            </button>
+          </div>
           <div class="atis-groups">
             <section class="atis-group" v-for="g in atisGroups" :key="g.key">
               <h3>{{ g.label }}</h3>
               <div class="atis-grid">
-                <article class="atis-ap" v-for="d in g.items" :key="d.airport">
+                <article class="atis-ap" :id="'ap-' + d.airport" v-for="d in g.items" :key="d.airport">
                   <div class="head">
                     <span class="name">{{ batchName(d) }}</span>
                     <span class="sub">
@@ -1003,6 +1028,17 @@ const app = Vue.createApp({
     });
 
     const batchName = d => (d && (d.airport_name || d.airport_name_en || d.airport)) || '—';
+    const batchNav = Vue.computed(() => {
+      const out = [];
+      for (const g of atisGroups.value) {
+        for (const d of g.items) out.push({ code: d.airport, name: batchName(d) });
+      }
+      return out;
+    });
+    function scrollToAirport(code) {
+      const el = document.getElementById('ap-' + code);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
     const batchEnglish = d => {
       if (!d || !d.airport_name_en) return '';
       if (d.airport_name && d.airport_name === d.airport_name_en) return '';
@@ -1180,6 +1216,7 @@ const app = Vue.createApp({
     }
 
     const theme = Vue.ref(document.documentElement.classList.contains('light') ? 'light' : 'dark');
+    let themeDirty = false;
     const applyTheme = value => {
       theme.value = value === 'light' ? 'light' : 'dark';
       document.documentElement.classList.toggle('light', theme.value === 'light');
@@ -1189,18 +1226,20 @@ const app = Vue.createApp({
       try {
         const resp = await fetch('http://ancapi.localhost/config', { cache: 'no-store', signal: AbortSignal.timeout(8000) });
         const result = await resp.json();
+        if (themeDirty) return; // 用户已手动切换，忽略迟到的启动读取
         if (result.ok && result.data && result.data.theme) applyTheme(result.data.theme);
       } catch (e) { /* 配置文件不可用时沿用本地记忆 */ }
     }
     async function toggleTheme() {
       const next = theme.value === 'light' ? 'dark' : 'light';
+      themeDirty = true;
       applyTheme(next);
       showToast(next === 'light' ? '已切换为浅色模式' : '已切换为深色模式', 'success', 2000);
       try {
         const resp = await fetch('http://ancapi.localhost/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ theme: next }),
+          body: JSON.stringify({ theme: next, updated_at: Date.now() }),
           signal: AbortSignal.timeout(8000),
         });
         const result = await resp.json();
@@ -1560,6 +1599,7 @@ const app = Vue.createApp({
              theme, toggleTheme,
              atisView, atisBatch, atisBatchLoading, atisBatchError, atisGroups, loadATISBatch, backToBatch,
              batchName, batchEnglish, batchInfoCode, batchLatestTime, batchRunways, batchAgeText, batchAgeClass, batchCountdownText,
+             batchNav, scrollToAirport,
              highlightRunwaysFor, historyAirport, historyMonths, historyData, historyLoading, historyError,
              historyAirports, historyTime, loadHistory, openHistory, exportATISHistory,
              gateHistOpen, gateHistMonths, gateHistFlight, gateHistData, gateHistLoading, gateHistError,

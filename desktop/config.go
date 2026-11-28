@@ -11,7 +11,8 @@ import (
 // 用户设置保存在 exe 同目录的 config.json，重启后保留。
 
 type appSettings struct {
-	Theme string `json:"theme"`
+	Theme     string `json:"theme"`
+	UpdatedAt int64  `json:"updated_at,omitempty"`
 }
 
 var settingsMu sync.Mutex
@@ -63,7 +64,18 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "invalid theme"})
 			return
 		}
-		if err := saveSettings(req); err != nil {
+		cur := loadSettings()
+		// 旧请求（时间戳更早）不覆盖更新的选择，避免网络延迟导致闪烁/回退
+		if req.UpdatedAt > 0 && req.UpdatedAt < cur.UpdatedAt {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "stale": true, "data": cur})
+			return
+		}
+		next := cur
+		next.Theme = req.Theme
+		if req.UpdatedAt > 0 {
+			next.UpdatedAt = req.UpdatedAt
+		}
+		if err := saveSettings(next); err != nil {
 			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
