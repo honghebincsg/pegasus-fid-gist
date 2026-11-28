@@ -154,6 +154,11 @@
   }
   .atis-batch-meta button:hover { background: rgba(148,163,184,.26); }
   .atis-batch-meta button:disabled { opacity: .5; cursor: default; }
+  .age-legend { display: inline-flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
+  .age-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+  .age-legend .lg-fresh { background: #22c55e; }
+  .age-legend .lg-warm { background: #f59e0b; }
+  .age-legend .lg-stale { background: #ef4444; }
   .atis-nav {
     position: sticky; top: -16px; z-index: 5; flex: 0 0 auto;
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
@@ -646,6 +651,11 @@
             <span>常用机场 {{ atisBatch.count }} 个 · 成功 {{ atisBatch.ok_count }} 个 · 缓存更新 {{ atisBatch.fetched_at }} · 每 2 分钟自动刷新</span>
             <span class="age-badge" v-if="batchAgeText" :class="batchAgeClass">{{ batchAgeText }}</span>
             <span>下次刷新 <b>{{ batchCountdownText }}</b></span>
+            <span class="age-legend" title="更新时间颜色规则">
+              <span><i class="lg-fresh"></i>1 小时内</span>
+              <span><i class="lg-warm"></i>2 小时内</span>
+              <span><i class="lg-stale"></i>超 2 小时</span>
+            </span>
             <span v-if="atisBatchError" style="color:#fca5a5">{{ atisBatchError }}</span>
             <span class="spacer"></span>
             <button @click="loadATISBatch(true, true)" :disabled="atisBatchLoading">{{ atisBatchLoading ? '刷新中…' : '刷新' }}</button>
@@ -1176,9 +1186,9 @@ const app = Vue.createApp({
     function ageClass(value) {
       const minutes = ageMinutes(value);
       if (minutes === null) return '';
-      if (minutes <= 30) return 'fresh'; // 半小时内：绿色
-      if (minutes < 60) return 'warm';   // 一小时以内：橙黄
-      return 'stale';                    // 一小时及以上：红色
+      if (minutes <= 60) return 'fresh';  // 1 小时以内：绿色
+      if (minutes <= 120) return 'warm';  // 2 小时以内：黄色
+      return 'stale';                     // 超过 2 小时：红色
     }
 
     function latestTimeOf(d) {
